@@ -70,8 +70,10 @@ the default path — see (d) for the one place it is genuinely required.
 
 **c. Databricks supports conditional GET; Anthropic does not.** `If-None-Match` against
 `docs.databricks.com` returned `304` with a zero-byte body. That makes refresh runs over
-5,720 Databricks pages nearly free. Anthropic sends `no-store`, so refresh there is a full
-re-fetch gated on content hash.
+5,720 Databricks pages nearly free. Anthropic sends `no-store` **and no validators at
+all** — measured in step 4: 0 of 50 `.md` responses carried an `ETag` or `Last-Modified`.
+Refresh there is therefore always a full re-fetch, and "did it change?" is answerable only
+afterwards, by comparing `raw_sha256` (§8).
 
 **d. `docs.databricks.com/api/**` (3,526 URLs) is the browser tier.** The shell contains
 31 characters of text; the REST reference renders client-side. This is out of scope for
@@ -91,16 +93,17 @@ disallows `*s=*`, `/aws/en/search-for`, and `/aws/en/archive/` — all three go 
 
 ## 3. Scope and volume
 
-| Source | In-scope URLs | Tier | Est. raw (gzip) |
-|---|---|---|---|
-| anthropic docs (`/docs/en/`) | 566 | markdown endpoint | ~10 MB |
-| anthropic cookbook (`/cookbook/`) | 95 | http + HTML extract | ~3 MB |
-| databricks docs (`/aws/en/`) | 5,720 | http + HTML extract | ~50 MB |
-| databricks api (`/api/`) | 3,526 | **browser** (phase 2) | ~15 MB |
-| **total (phase 1)** | **6,381** | | **~65 MB** |
+| Source | In-scope URLs | Tier | Measured avg (gz) | Projected raw |
+|---|---|---|---|---|
+| anthropic docs (`/docs/en/`) | 566 | markdown endpoint | 8.4 KiB | ~5 MB |
+| anthropic cookbook (`/cookbook/`) | 95 | http + HTML extract | 34.7 KiB | ~3 MB |
+| databricks docs (`/aws/en/`) | 5,720 | http + HTML extract | 9.7 KiB | ~54 MB |
+| databricks api (`/api/`) | 3,526 | **browser** (phase 2) | — | ~15 MB |
+| **total (phase 1)** | **6,381** | | | **~62 MB** |
 
-Sizes are gzipped, from a measured 25% compression ratio on a representative Databricks
-page (34,698 → 8,810 bytes).
+Averages are from 155 pages actually archived in steps 3–4, not estimates. Note the
+Markdown twins are *smaller* than the HTML they replace despite carrying the same content
+— tier 0 saves bandwidth as well as an extractor.
 
 **Deliberately rate-limited: 1 request/second per host, 2 concurrent** (§6.2). The sites
 would tolerate far more — eight parallel requests to Anthropic returned in 0.75 s with no
@@ -147,11 +150,11 @@ claude-scraper/
 │   ├── fetch/
 │   │   ├── rawstore.py           # ✅ step 2 — path mirroring + atomic gz writes
 │   │   ├── db.py                 # ✅ step 2 — fetch.db bookkeeping + validators
-│   │   ├── tiers.py              # tier selection + escalation policy
-│   │   ├── http.py               # httpx.AsyncClient, HTTP/2, retries, conditional GET
-│   │   ├── markdown_endpoint.py  # tier 0: URL → URL.md
-│   │   ├── browser.py            # tier 2: patchright persistent context
-│   │   └── politeness.py         # per-host token bucket; reuses worklist.robots
+│   │   ├── politeness.py         # ✅ step 3 — per-host token bucket + one-way backoff
+│   │   ├── http.py               # ✅ step 3 — tier 1: retries, conditional GET
+│   │   ├── runner.py             # ✅ step 3 — job selection, run loop, run summary
+│   │   ├── markdown_endpoint.py  # ✅ step 4 — tier 0: URL → URL.md, with escalation
+│   │   └── browser.py            # tier 2: patchright persistent context
 │   ├── extract/
 │   │   ├── registry.py           # source_id → extractor
 │   │   ├── base.py               # Extracted model + quality gate
@@ -246,6 +249,11 @@ needed a browser" without guessing.
 | 0 · `markdown_endpoint` | `GET {url}.md` via httpx | Anthropic `/docs/en/` | 404/415 → tier 1 |
 | 1 · `http` | `httpx.AsyncClient(http2=True)` | everything static | 403/429/503, Cloudflare challenge marker, or extracted text below the quality floor → tier 2 |
 | 2 · `browser` | Patchright persistent context, real Chrome channel, page pool | SPA shells (`/api/**`), any future JS-only or Cloudflare-gated site | give up → `fetch_error` |
+
+Until a tier is implemented, sources requesting it are **skipped with a warning** rather
+than run through a different one. Fetching `anthropic-docs` with tier 1 would archive 566
+HTML pages that tier 0 then replaces — 566 wasted requests on someone else's server, and
+an archive that has to be thrown away.
 
 Tier 2 stays in the design even though phase 1 does not need it: it is the reason
 `docs.databricks.com/api/**` (3,526 pages) is reachable at all, and it is the insurance
@@ -478,10 +486,35 @@ Each step ends with something runnable and verifiable.
    chars, depth ≤10), and an end-to-end smoke on a live page — 34,698 bytes archived to
    8,810 (25%), byte-identical round-trip, then a conditional GET returning **304 with an
    empty body** and the archive pointer intact. §8's economics hold in practice.
-3. **Tier 1 fetcher** — httpx async, politeness, retries, conditional GET. Run against
-   50 Databricks URLs; confirm a second run yields 50 × `not_modified`.
-4. **Tier 0 fetcher** — `.md` endpoint with 404 fallback to tier 1. Run against 50
-   Anthropic docs URLs; confirm `text/markdown` and the 307 case lands correctly.
+3. **Tier 1 fetcher** — ✅ done. `fetch/politeness.py`, `fetch/http.py`,
+   `fetch/runner.py`, behind `scripts/fetch.py`; 36 new tests (104 total).
+   Verified against the live sites:
+
+   * 50 Databricks URLs → **50 ok, 0 errors, 0.87 req/s, no penalties**;
+   * `--refresh` over the same 50 → **50 × 304, 0.0 MiB transferred** — §8's economics
+     confirmed end to end;
+   * 5 Anthropic cookbook URLs → `--refresh` returns **200, not 304**, exactly as §2c
+     predicted for a `no-store` host;
+   * archive integrity spot-checked: stored sha256 matches the re-read bytes.
+
+   Selection modes matter as much as the fetching: **default** skips already-archived
+   URLs (so an interrupted run resumes for free), **`--refresh`** revalidates, **`--force`**
+   re-fetches unconditionally. Sources whose tier is not implemented yet are *deferred*,
+   not fetched with the wrong tier — see §6.1.
+4. **Tier 0 fetcher** — ✅ done. `fetch/markdown_endpoint.py` plus per-source tier
+   dispatch in the runner; 13 new tests (119 total). Verified live:
+
+   * 50 Anthropic docs URLs → **50 ok, all `text/markdown`, archived as `.md.gz`**, zero
+     escalations, frontmatter intact;
+   * escalation exercised against `/cookbook/**` (no `.md` twin) → `404` then the page
+     itself, recorded as tier `markdown_endpoint->http`;
+   * `--refresh` over the same 50 → **50 ok, 50 byte-identical**, the content-hash path
+     from §8 doing the work validators cannot on that host.
+
+   Escalation is deliberately narrow: only a genuine *absence* (`404`/`410`/`415`) or a
+   non-Markdown `2xx` falls back. A timeout or `5xx` is reported as a tier-0 failure and
+   retried next run — escalating there would permanently downgrade a page to HTML because
+   of one bad minute on the server.
 5. **Extractors** — `passthrough_md` and `docusaurus` + quality gate. Run over the ~100
    raw files from steps 3–4 and **read 10 outputs by hand**. This is the step where
    quality is actually decided; do not skim it.

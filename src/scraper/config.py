@@ -45,7 +45,11 @@ Seed = Annotated[DumpSeed | SitemapSeed, Field(discriminator="type")]
 
 
 class Defaults(BaseModel):
-    """Global fetch defaults. Politeness knobs (concurrency, rate) arrive with step 3."""
+    """Global fetch defaults.
+
+    The rate settings are a floor on politeness, not a tuning knob — see PLAN.md §6.2.
+    They are deliberately below what the target sites would tolerate.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -56,6 +60,22 @@ class Defaults(BaseModel):
     timeout_s: float = Field(default=30.0, gt=0)
     respect_robots: bool = Field(
         default=True, description="Drop robots.txt-disallowed URLs from the worklist"
+    )
+
+    concurrency: int = Field(
+        default=2, ge=1, le=8, description="Simultaneous in-flight requests per host"
+    )
+    requests_per_second: float = Field(
+        default=1.0, gt=0, le=10,
+        description="Per-host request rate — the binding constraint on run time",
+    )
+    jitter_s: float = Field(
+        default=0.3, ge=0, description="Random extra delay, so we never look like a metronome"
+    )
+    retries: int = Field(default=3, ge=0, description="Retry attempts for transient failures")
+    backoff_max_s: float = Field(default=120.0, gt=0, description="Ceiling on retry backoff")
+    max_attempts: int = Field(
+        default=3, ge=1, description="Give up on a URL after this many failed runs"
     )
 
 

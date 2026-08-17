@@ -16,6 +16,9 @@ dumps          fetchers    .html/.md.gz    parsers       + index.db
                                 └── re-parse without re-fetching
 ```
 
+Where a site offers a Markdown twin of each page — Anthropic's docs serve
+`…/prompt-caching.md` — it is fetched directly and **no HTML parsing happens at all**.
+
 The one idea everything follows from: **acquisition and parsing are separate stages.**
 Fetching is slow, rate-limited, and someone else's resource; parsing is free, local, and
 will be wrong the first few times. Because the exact bytes we received are archived under
@@ -34,28 +37,28 @@ sources sharing a host don't double the load. `robots.txt` is fetched once per h
 enforced, and any `429`/`503` halves that host's rate for the rest of the run.
 
 If you need a run to finish sooner, prefer starting it earlier over raising the rate.
+There is no CLI flag to go faster — the limits live in `config/sources.yaml`.
+
+A source whose fetch tier isn't implemented yet is **deferred, not fetched with a
+different tier** — fetching a browser-tier source over plain HTTP would archive an empty
+SPA shell and record it as a success.
 
 ## Setup
 
 ```bash
 uv sync                    # Python 3.12+
-uv run pytest              # 68 tests, no network
+uv run pytest              # 119 tests, no network
 ```
 
 ## Usage
 
-Nothing below fetches a page yet — the tier fetchers land in step 3 (see PLAN.md §12).
+### Inspect before you fetch
 
 ```bash
-# What would we fetch, and what did each filter stage remove?
-uv run python scripts/worklist.py
+uv run python scripts/worklist.py                      # what would we fetch?
 uv run python scripts/worklist.py --offline            # dumps only, no network at all
 uv run python scripts/worklist.py --source databricks-docs --sample 5
-uv run python scripts/worklist.py --json
-
-# How much of each company/category is already in the corpus?
-uv run python scripts/coverage.py --overview
-uv run python scripts/coverage.py --company databricks --sort pending
+uv run python scripts/coverage.py --overview           # how much is already in the corpus?
 ```
 
 `worklist.py` prints the funnel, so an unexpectedly small result says which stage caused it:
@@ -64,6 +67,47 @@ uv run python scripts/coverage.py --company databricks --sort pending
 databricks-docs  (databricks)
   seeded  37689   -out-of-scope  31969   -robots    0   -capped     0   =>   5720
 ```
+
+### Fetch
+
+Always start with `--dry-run`, and prefer a `--limit` trial before a full run.
+
+```bash
+uv run python scripts/fetch.py --dry-run                        # select, request nothing
+uv run python scripts/fetch.py --source databricks-docs --limit 50
+uv run python scripts/fetch.py                                  # fetch what's new / resume
+uv run python scripts/fetch.py --refresh                        # revalidate the archive
+```
+
+Three selection modes, because on a ~1h45m run what a re-run *doesn't* do matters most:
+
+| Mode | Does | Use when |
+|---|---|---|
+| default | fetches new + previously-errored URLs; skips what is archived | first run, or resuming an interrupted one |
+| `--refresh` | revalidates archived URLs with a conditional GET | keeping the corpus current |
+| `--force` | re-fetches unconditionally, ignoring state and validators | the archive is wrong |
+
+Because outcomes are written to `fetch.db` per URL, an interrupted run loses at most the
+requests in flight — restart it and the archived pages cost nothing.
+
+Every run prints a summary and writes it to `state/runs/{timestamp}.json`:
+
+```
+run 2026-08-17T17:54:23+00:00  mode=refresh
+  sources        databricks-docs
+  selected       50   (skipped: 0 archived, 0 exhausted)
+  ok             0
+  not modified   50
+  errors         0
+  fetched        0.0 MiB
+  elapsed        56.0s  (0.89 req/s overall)
+  status codes   304:50
+  host docs.databricks.com  1.0 req/s
+```
+
+That run is the design working: 50 pages revalidated, **zero bytes transferred**, because
+Databricks answers `If-None-Match` with a `304`. Anthropic sends `no-store`, so a refresh
+there is a real re-fetch compared by content hash instead.
 
 ## Configuration
 
@@ -94,11 +138,12 @@ Add a partner site by adding a source. If no bespoke extractor fits it yet, `gen
 | `config/sources.yaml` | sources, scope filters, politeness defaults |
 | `sitemap-dumps/` | committed URL dumps; let the worklist run fully offline |
 | `src/scraper/worklist/` | seeds → filters → robots → the list of URLs to fetch |
-| `src/scraper/fetch/` | the raw archive (`rawstore`) and its bookkeeping (`db`) |
+| `src/scraper/fetch/` | rate limiting, the HTTP fetcher, the raw archive, and `fetch.db` |
 | `src/scraper/store/` | corpus writer + `index.db` manifest |
 | `raw/` | **archive** — verbatim page bytes, gzipped. Gitignored, never hand-edited |
 | `data/` | **corpus** — the Markdown output. Gitignored; rebuildable from `raw/` |
 | `state/fetch.db` | what we asked for, what came back, HTTP validators |
+| `state/runs/` | one JSON summary per fetch run |
 | `state/index.db` | corpus manifest; rebuildable from `data/` |
 
 `raw/` is the expensive artifact — it costs a crawl to recreate. `data/` and
@@ -111,8 +156,10 @@ Add a partner site by adding a source. If no bespoke extractor fits it yet, `gen
 | 0 · repo layout | ✅ done |
 | 1 · worklist (dumps, filters, robots) | ✅ done — 566 / 95 / 5,720 = **6,381** URLs in scope |
 | 2 · raw store + `fetch.db` | ✅ done — 0 collisions over 40,618 URLs; 304 revalidation confirmed live |
-| 3 · tier-1 HTTP fetcher | next |
-| 4–7 · tier-0 fetcher, extractors, corpus writer, full run | planned |
+| 3 · tier-1 HTTP fetcher + politeness | ✅ done — 50 live pages, then 50 × `304` on refresh |
+| 4 · tier-0 `.md` fetcher | ✅ done — 50 Anthropic docs pages as native Markdown |
+| 5 · extractors | next |
+| 6–7 · corpus writer, full run | planned |
 | 8–10 · cookbook extractor, enrichment, browser tier | planned |
 
 A full cold crawl of phase 1 is ~1 h 45 m at the configured rate; re-extracting the whole
