@@ -135,16 +135,18 @@ claude-scraper/
 ├── sitemap-dumps/                # committed URL dumps (existing format)
 ├── src/scraper/
 │   ├── config.py                 # extended (§5)
-│   ├── worklist/
+│   ├── worklist/                 # ✅ step 1
+│   │   ├── __init__.py           # build() / build_all() — the seeds→URLs funnel
 │   │   ├── dumps.py              # parse "lastmod<2sp>url" dump files
 │   │   ├── sitemap.py            # live sitemap.xml + index (from v1)
-│   │   └── filters.py            # include/exclude/limit (from v1, unchanged)
+│   │   ├── robots.py             # robots.txt fetch/parse/match (+ Sitemap: discovery)
+│   │   └── filters.py            # include/exclude + date window
 │   ├── fetch/
 │   │   ├── tiers.py              # tier selection + escalation policy
 │   │   ├── http.py               # httpx.AsyncClient, HTTP/2, retries, conditional GET
 │   │   ├── markdown_endpoint.py  # tier 0: URL → URL.md
 │   │   ├── browser.py            # tier 2: patchright persistent context
-│   │   ├── politeness.py         # per-host token bucket + robots.txt
+│   │   ├── politeness.py         # per-host token bucket; reuses worklist.robots
 │   │   └── rawstore.py           # gz writes + fetch.db bookkeeping
 │   ├── extract/
 │   │   ├── registry.py           # source_id → extractor
@@ -455,8 +457,15 @@ Each step ends with something runnable and verifiable.
    at a path that did not exist), `scraper.*` imports resolve, `config/sources.yaml`
    loads, `state/index.db` reads back its 14 rows, and `scripts/coverage.py` runs.
    The declared `scraper` console entry point stays broken until `cli.py` lands in step 7.
-1. **Worklist** — dump reader + filters + robots check. Verify: 566 / 95 / 5,720 URLs for
-   the three phase-1 sources, matching §3. No network beyond `robots.txt`.
+1. **Worklist** — ✅ done. Dump reader, scope filters, robots.txt, and the seeds→URLs
+   funnel, behind `scripts/worklist.py`. Verified **566 / 95 / 5,720 = 6,381**, matching
+   §3, both offline (`--offline`, dumps only) and against live sitemaps. Network is
+   sitemap XML + robots.txt only — never a page.
+
+   Two findings worth keeping: the live sitemaps contribute **no** URLs the committed
+   dumps lack, so the dumps are not yet stale; and robots.txt independently blocks
+   exactly the 94 URLs that `exclude_paths` removes (5,814 → 5,720), so the two controls
+   agree without being wired to each other.
 2. **Raw store + `fetch.db`** — write/read/gz round-trip, path mirroring, collision test.
 3. **Tier 1 fetcher** — httpx async, politeness, retries, conditional GET. Run against
    50 Databricks URLs; confirm a second run yields 50 × `not_modified`.

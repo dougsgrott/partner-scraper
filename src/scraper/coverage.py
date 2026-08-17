@@ -6,7 +6,8 @@ data; `scripts/coverage.py` formats it and a future UI can consume it directly. 
 `docs/coverage.md`.
 
 `category` here is a URL-path section (e.g. `agents-and-tools`) with its path-prefix — the
-thing `batch.priorities` matches on — NOT the content `theme` used for `data/` folders.
+thing `include_paths` / `exclude_paths` match on. It is also what the corpus folder layout
+will key on from step 5 onward (PLAN.md §7.3).
 """
 
 from __future__ import annotations
@@ -14,9 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
+from . import worklist
 from .config import AppConfig, SourceConfig
-from .discovery import filters as flt
-from .discovery import sitemap as sm
 from .store.index import Index
 
 
@@ -24,7 +24,7 @@ def category_for(url: str, source: SourceConfig, depth: int = 1) -> tuple[str, s
     """Return (label, prefix) for a URL's category.
 
     Strips the longest matching include_path prefix, then takes the next `depth` path
-    segments as the label; prefix is the full path-prefix (paste-ready for priorities).
+    segments as the label; prefix is the full path-prefix (paste-ready for config).
     """
     path = urlparse(url).path
     matched = ""
@@ -109,36 +109,57 @@ def compute(
     use_filters: bool = True,
     depth: int = 1,
     index: Index | None = None,
+    use_sitemaps: bool = True,
 ) -> list[CompanyCoverage]:
-    """Per-company, per-category coverage. `use_filters=False` uses the raw sitemap."""
-    companies = companies or list(cfg.sources)
+    """Per-company, per-category coverage.
+
+    Sources are grouped back up to their company, so a company split across tiers
+    (anthropic-docs + anthropic-cookbook) still reports as one row.
+    """
+    companies = companies or cfg.companies
     own_index = index is None
     index = index or Index()
     try:
         status_by_url = {r["url"]: r["status"] for r in index.query()}
 
+        worklists = {
+            wl.source_id: wl
+            for wl in worklist.build_all(cfg, use_sitemaps=use_sitemaps)
+        }
+
         results: list[CompanyCoverage] = []
         for company in companies:
-            src = cfg.sources[company]
-            urls = sm.collect(src)
-            if use_filters:
-                urls = flt.apply(urls, src, cfg.filters)
-
             cats: dict[str, CategoryStat] = {}
-            for du in urls:
-                label, prefix = category_for(du.url, src, depth)
-                stat = cats.get(label)
-                if stat is None:
-                    stat = cats[label] = CategoryStat(label, prefix)
-                stat.total += 1
-                status = status_by_url.get(du.url)
-                if status == "ok":
-                    stat.scraped += 1
-                elif status is not None:
-                    stat.errored += 1
+            for source_id, src in cfg.sources_for(company).items():
+                wl = worklists.get(source_id)
+                if wl is None:      # disabled source
+                    continue
+                urls = wl.urls if use_filters else _unfiltered(cfg, source_id, use_sitemaps)
+
+                for du in urls:
+                    label, prefix = category_for(du.url, src, depth)
+                    stat = cats.get(label)
+                    if stat is None:
+                        stat = cats[label] = CategoryStat(label, prefix)
+                    stat.total += 1
+                    status = status_by_url.get(du.url)
+                    if status == "ok":
+                        stat.scraped += 1
+                    elif status is not None:
+                        stat.errored += 1
 
             results.append(CompanyCoverage(company, list(cats.values())))
         return results
     finally:
         if own_index:
             index.close()
+
+
+def _unfiltered(cfg: AppConfig, source_id: str, use_sitemaps: bool) -> list:
+    """Every seeded URL for a source, ignoring scope filters (--raw)."""
+    src = cfg.sources[source_id]
+    bare = src.model_copy(update={"include_paths": [], "exclude_paths": []})
+    return worklist.build(
+        source_id, bare, use_sitemaps=use_sitemaps, respect_robots=False,
+        user_agent=cfg.defaults.user_agent,
+    ).urls
