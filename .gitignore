@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local corpus + index (rebuildable; not committed)
+data/*
+!data/.gitkeep
+state/*
+!state/.gitkeep
+
+# Secrets
+.env

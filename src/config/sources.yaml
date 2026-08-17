@@ -1,0 +1,60 @@
+# Model tier used for ingestion (the single fetch+enrich Claude call).
+# Bulk extraction runs fine on a cheaper tier; raise to claude-opus-4-8 if quality needs it.
+model: claude-sonnet-4-6
+
+# Cap per-page fetched content — the main per-page cost lever (passed to the web_fetch tool).
+max_content_tokens: 30000
+
+sources:
+  anthropic:
+    sitemaps:
+      - https://docs.claude.com/sitemap.xml
+    # Docs are served per-locale under /docs/{locale}/; pin to English to avoid
+    # ingesting the same page in de/es/fr/... /cookbook/ has no locale segment.
+    include_paths: # keep only URLs whose path matches one of these prefixes
+      - /docs/en/
+      - /cookbook/
+    exclude_paths: [] # drop URLs matching any of these (wins over include_paths)
+    themes: # the closed taxonomy Claude must classify into (keeps folders stable)
+      - prompt-caching
+      - tool-use
+      - agents
+      - models-and-pricing
+      - streaming
+      - other
+
+  databricks:
+    sitemaps:
+      - https://docs.databricks.com/sitemap.xml
+    # Docs are triplicated across clouds (/aws/, /gcp/, /azure/) and localized;
+    # pin to one cloud + English so each doc is ingested once.
+    include_paths:
+      - /aws/en/
+    exclude_paths: []
+    themes:
+      - delta-lake
+      - unity-catalog
+      - mlflow
+      - workflows
+      - sql-warehouse
+      - other
+
+# Global filters, overridable per run (e.g. from CLI flags).
+filters:
+  published_after: null # e.g. 2025-01-01 to ingest only recent material
+  published_before: null
+  max_pages: null # cap pages per run (useful for test runs)
+
+# Windowed batch runner (Claude Code path): ingest a bounded number of pages per run,
+# stop before subscription usage limits, resume next run. See src/scraper/cc_runner.py.
+batch:
+  size: 100 # max pages ingested per run
+  max_attempts: 3 # retry cap for errored URLs before parking them
+  stop_utilization: 0.9 # stop once the active usage window is this full (0..1)
+  companies: null # null = all companies; or e.g. [anthropic]
+  # Ordered path-prefix patterns — matching URLs are scraped first (earlier = higher).
+  # Uncomment / edit to steer coverage from the first run:
+  priorities: []
+  #   - /docs/en/agents-and-tools/
+  #   - /docs/en/build-with-claude/
+  #   - /aws/en/mlflow3/
