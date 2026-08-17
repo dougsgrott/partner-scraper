@@ -57,7 +57,8 @@ Four findings that shape the plan:
 
 **a. Anthropic docs serve native Markdown.** `…/prompt-caching.md` returns
 `text/markdown` with YAML frontmatter already containing `title`, `url`, and
-`description`. Eight concurrent requests completed in 0.75 s with no throttling. For
+`description`. Eight concurrent requests completed in 0.75 s with no throttling — headroom
+we deliberately decline to use (§6.2). For
 `/docs/en/**` there is **no HTML parsing at all** — fetch, strip frontmatter, done. This
 does **not** extend to `/cookbook/**` (`.md` → 404, HTML only), and some paths 307-redirect
 (`/docs/en/release-notes/api.md`), so the fetcher must follow redirects, record the final
@@ -98,10 +99,21 @@ disallows `*s=*`, `/aws/en/search-for`, and `/aws/en/archive/` — all three go 
 | databricks api (`/api/`) | 3,526 | **browser** (phase 2) | ~15 MB |
 | **total (phase 1)** | **6,475** | | **~55 MB** |
 
-At 5 concurrent requests and observed latencies (0.18 s Databricks, 1.15 s Anthropic
-HTML, ~0.1 s Anthropic `.md`), a **full cold crawl of phase 1 is 5–15 minutes**. A
-refresh run over Databricks is mostly 304s and takes ~2 minutes. This is the headline
-difference from v1, where the same corpus was a multi-day, usage-limit-bounded exercise.
+**Deliberately rate-limited: 1 request/second per host, 2 concurrent** (§6.2). The sites
+would tolerate far more — eight parallel requests to Anthropic returned in 0.75 s with no
+throttling — but there is no reason to spend someone else's capacity to save our own
+wall-clock time. At that rate the request timer, not latency, sets the pace:
+
+| Run | Pages | Wall time at 1 req/s |
+|---|---|---|
+| Full cold crawl, phase 1 | 6,475 | **~1 h 50 m** |
+| Refresh, databricks-docs (mostly 304s) | 5,814 | ~1 h 40 m |
+| Refresh, anthropic docs + cookbook | 661 | ~11 m |
+| Re-extract everything from `raw/` | 6,475 | seconds — no network |
+
+Even so, this is a different regime from v1, where the same corpus was a multi-day,
+usage-limit-bounded exercise. And the number that matters day to day is the last row:
+iterating on extractors costs no requests at all.
 
 Locale/cloud duplicates (`/docs/zh-CN/`, `/gcp/en/`, `/aws/ja/`) are excluded by path
 filter, as in v1. That is 34,000 of the 40,000 URLs in the dumps.
@@ -167,10 +179,12 @@ two different fetch/parse paths (Anthropic docs vs cookbook).
 ```yaml
 defaults:
   user_agent: "indicium-docs-scraper/0.2 (+doug.sgrott@gmail.com)"
-  concurrency: 5              # per host
-  requests_per_second: 5      # per host, token bucket
+  concurrency: 2              # per host, simultaneous in-flight requests
+  requests_per_second: 1      # per host, token bucket — the binding constraint
+  jitter_s: 0.3               # random extra delay, so we never look like a metronome
   timeout_s: 30
   retries: 3
+  backoff_max_s: 120
   respect_robots: true
 
 sources:
@@ -235,8 +249,21 @@ pages across it — process startup dominates per-page cost otherwise.
 
 ### 6.2 Politeness and failure handling
 
-- Per-host token bucket (`requests_per_second`) plus a concurrency semaphore. Global caps,
-  not per-source, so two sources on the same host cannot double the load.
+**The rate limit is a floor on politeness, not a tuning knob.** Default 1 req/s with 2
+in-flight and jitter, and it is deliberately below what the servers would accept:
+
+- Per-host token bucket (`requests_per_second`) plus a concurrency semaphore. Both are
+  keyed on **host, not source**, so two sources sharing a host cannot double the load —
+  `anthropic-docs` and `anthropic-cookbook` together stay under 1 req/s to
+  `platform.claude.com`.
+- A single fetch process holds the buckets, so parallel `scraper fetch` invocations must
+  not be the way to go faster. Lower the rate for a long unattended run rather than
+  raising it for a fast one; a run that finishes overnight costs nothing.
+- Back off *harder* than required on the first sign of strain: any 429 or 503 halves the
+  host's rate for the remainder of the run and does not restore it. Servers that push
+  back should not have to push back twice.
+- Identify ourselves honestly in the UA string with a contact address, so anyone bothered
+  by the traffic can find us before they block us.
 - `robots.txt` fetched once per host at startup; disallowed URLs are dropped from the
   worklist with a logged count, independent of `exclude_paths`.
 - Retries on 429/5xx/timeouts with exponential backoff + jitter; honour `Retry-After`.
@@ -422,8 +449,12 @@ New dependencies: `httpx[http2]`, `beautifulsoup4`+`lxml`, `markdownify`, `trafi
 
 Each step ends with something runnable and verifiable.
 
-0. **Fix the layout** — `src/src/scraper` → `src/scraper`; move `config/`, `data/`,
-   `state/`, `scripts/`, `sitemap-dumps/` to the repo root. Confirm `uv run scraper --help`.
+0. **Fix the layout** — ✅ done. `src/src/scraper` → `src/scraper`; `config/`, `data/`,
+   `state/`, `scripts/`, `sitemap-dumps/`, `docs/` moved to the repo root; `raw/` added to
+   `.gitignore`. Verified: the wheel now builds (it could not before — `packages` pointed
+   at a path that did not exist), `scraper.*` imports resolve, `config/sources.yaml`
+   loads, `state/index.db` reads back its 14 rows, and `scripts/coverage.py` runs.
+   The declared `scraper` console entry point stays broken until `cli.py` lands in step 7.
 1. **Worklist** — dump reader + filters + robots check. Verify: 566 / 95 / 5,814 URLs for
    the three phase-1 sources, matching §3. No network beyond `robots.txt`.
 2. **Raw store + `fetch.db`** — write/read/gz round-trip, path mirroring, collision test.
@@ -457,8 +488,9 @@ Steps 0–7 deliver the whole phase-1 corpus with no LLM involvement and no brow
 - **Release notes and changelogs.** High-value for a partner-facing team and high-churn —
   they may warrant a shorter refresh cadence than the rest of the corpus. Currently
   treated like any other page.
-- **Refresh cadence.** Everything here is on-demand, as in v1. Once a full run is ~10
-  minutes and a refresh is ~2, a scheduled daily run becomes cheap enough to reconsider.
+- **Refresh cadence.** Everything here is on-demand, as in v1. At 1 req/s a full refresh
+  is ~2 hours of background traffic — fine unattended, but it argues for refreshing
+  high-churn sections (release notes, changelogs) more often than the whole corpus.
 - **Keeping raw history.** Currently the raw archive holds only the latest fetch per URL.
   Keeping prior versions (hash-suffixed) would make "what changed in this doc" answerable
   — cheap in storage, but not needed for the corpus itself.

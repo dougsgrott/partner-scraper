@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Raw fetch archive (large; re-fetchable but slow — keep it, never commit it)
+raw/
+
 # Local corpus + index (rebuildable; not committed)
 data/*
 !data/.gitkeep
