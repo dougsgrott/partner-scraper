@@ -95,9 +95,12 @@ disallows `*s=*`, `/aws/en/search-for`, and `/aws/en/archive/` — all three go 
 |---|---|---|---|
 | anthropic docs (`/docs/en/`) | 566 | markdown endpoint | ~10 MB |
 | anthropic cookbook (`/cookbook/`) | 95 | http + HTML extract | ~3 MB |
-| databricks docs (`/aws/en/`) | 5,720 | http + HTML extract | ~40 MB |
+| databricks docs (`/aws/en/`) | 5,720 | http + HTML extract | ~50 MB |
 | databricks api (`/api/`) | 3,526 | **browser** (phase 2) | ~15 MB |
-| **total (phase 1)** | **6,381** | | **~55 MB** |
+| **total (phase 1)** | **6,381** | | **~65 MB** |
+
+Sizes are gzipped, from a measured 25% compression ratio on a representative Databricks
+page (34,698 → 8,810 bytes).
 
 **Deliberately rate-limited: 1 request/second per host, 2 concurrent** (§6.2). The sites
 would tolerate far more — eight parallel requests to Anthropic returned in 0.75 s with no
@@ -142,12 +145,13 @@ claude-scraper/
 │   │   ├── robots.py             # robots.txt fetch/parse/match (+ Sitemap: discovery)
 │   │   └── filters.py            # include/exclude + date window
 │   ├── fetch/
+│   │   ├── rawstore.py           # ✅ step 2 — path mirroring + atomic gz writes
+│   │   ├── db.py                 # ✅ step 2 — fetch.db bookkeeping + validators
 │   │   ├── tiers.py              # tier selection + escalation policy
 │   │   ├── http.py               # httpx.AsyncClient, HTTP/2, retries, conditional GET
 │   │   ├── markdown_endpoint.py  # tier 0: URL → URL.md
 │   │   ├── browser.py            # tier 2: patchright persistent context
-│   │   ├── politeness.py         # per-host token bucket; reuses worklist.robots
-│   │   └── rawstore.py           # gz writes + fetch.db bookkeeping
+│   │   └── politeness.py         # per-host token bucket; reuses worklist.robots
 │   ├── extract/
 │   │   ├── registry.py           # source_id → extractor
 │   │   ├── base.py               # Extracted model + quality gate
@@ -387,7 +391,9 @@ Sitemap `lastmod` is unusable (§2e), so the ladder is:
 
 1. **Conditional GET** where supported. Databricks returns `304` with an empty body —
    send stored `ETag`/`Last-Modified`, record `not_modified`, skip everything downstream.
-   This makes the 5,720-page refresh nearly free.
+   This makes the 5,720-page refresh nearly free. Confirmed live in step 2; note
+   CloudFront hands back a *weak* validator (`W/"…"`) when it compresses, which is fine
+   for revalidation — send it back verbatim and the 304 arrives.
 2. **Raw content hash.** Anthropic sends `no-store`, so re-fetch and compare
    `raw_sha256`. Unchanged → skip extraction and any enrichment.
 3. **Extracted content hash.** The existing `content_hash` over the cleaned body decides
@@ -466,7 +472,12 @@ Each step ends with something runnable and verifiable.
    dumps lack, so the dumps are not yet stale; and robots.txt independently blocks
    exactly the 94 URLs that `exclude_paths` removes (5,814 → 5,720), so the two controls
    agree without being wired to each other.
-2. **Raw store + `fetch.db`** — write/read/gz round-trip, path mirroring, collision test.
+2. **Raw store + `fetch.db`** — ✅ done. `fetch/rawstore.py` (URL→path mirroring, atomic
+   gzip writes, traversal-proofing) and `fetch/db.py` (bookkeeping + HTTP validators),
+   43 tests. Verified: **0 collisions across all 40,618 dumped URLs** (max path 163
+   chars, depth ≤10), and an end-to-end smoke on a live page — 34,698 bytes archived to
+   8,810 (25%), byte-identical round-trip, then a conditional GET returning **304 with an
+   empty body** and the archive pointer intact. §8's economics hold in practice.
 3. **Tier 1 fetcher** — httpx async, politeness, retries, conditional GET. Run against
    50 Databricks URLs; confirm a second run yields 50 × `not_modified`.
 4. **Tier 0 fetcher** — `.md` endpoint with 404 fallback to tier 1. Run against 50
