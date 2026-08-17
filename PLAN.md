@@ -70,7 +70,7 @@ the default path — see (d) for the one place it is genuinely required.
 
 **c. Databricks supports conditional GET; Anthropic does not.** `If-None-Match` against
 `docs.databricks.com` returned `304` with a zero-byte body. That makes refresh runs over
-5,814 Databricks pages nearly free. Anthropic sends `no-store`, so refresh there is a full
+5,720 Databricks pages nearly free. Anthropic sends `no-store`, so refresh there is a full
 re-fetch gated on content hash.
 
 **d. `docs.databricks.com/api/**` (3,526 URLs) is the browser tier.** The shell contains
@@ -95,9 +95,9 @@ disallows `*s=*`, `/aws/en/search-for`, and `/aws/en/archive/` — all three go 
 |---|---|---|---|
 | anthropic docs (`/docs/en/`) | 566 | markdown endpoint | ~10 MB |
 | anthropic cookbook (`/cookbook/`) | 95 | http + HTML extract | ~3 MB |
-| databricks docs (`/aws/en/`) | 5,814 | http + HTML extract | ~40 MB |
+| databricks docs (`/aws/en/`) | 5,720 | http + HTML extract | ~40 MB |
 | databricks api (`/api/`) | 3,526 | **browser** (phase 2) | ~15 MB |
-| **total (phase 1)** | **6,475** | | **~55 MB** |
+| **total (phase 1)** | **6,381** | | **~55 MB** |
 
 **Deliberately rate-limited: 1 request/second per host, 2 concurrent** (§6.2). The sites
 would tolerate far more — eight parallel requests to Anthropic returned in 0.75 s with no
@@ -106,10 +106,10 @@ wall-clock time. At that rate the request timer, not latency, sets the pace:
 
 | Run | Pages | Wall time at 1 req/s |
 |---|---|---|
-| Full cold crawl, phase 1 | 6,475 | **~1 h 50 m** |
-| Refresh, databricks-docs (mostly 304s) | 5,814 | ~1 h 40 m |
+| Full cold crawl, phase 1 | 6,381 | **~1 h 45 m** |
+| Refresh, databricks-docs (mostly 304s) | 5,720 | ~1 h 35 m |
 | Refresh, anthropic docs + cookbook | 661 | ~11 m |
-| Re-extract everything from `raw/` | 6,475 | seconds — no network |
+| Re-extract everything from `raw/` | 6,381 | seconds — no network |
 
 Even so, this is a different regime from v1, where the same corpus was a multi-day,
 usage-limit-bounded exercise. And the number that matters day to day is the last row:
@@ -122,10 +122,9 @@ filter, as in v1. That is 34,000 of the 40,000 URLs in the dumps.
 
 ## 4. Repository layout
 
-The current tree has the package at `src/src/scraper` while `pyproject.toml` declares
-`packages = ["src/scraper"]`, and `config/`, `data/`, `state/`, `scripts/`, and
-`sitemap-dumps/` all sit under `src/`. Fix that first (step 0 of §12) — it is a `git mv`,
-not a rewrite.
+Target layout. Step 0 (§12) has already moved the package to `src/scraper`, lifted the
+support directories to the repo root, and removed the retired v1 modules; the `worklist/`,
+`fetch/`, `extract/`, and `enrich/` packages below are what steps 1–9 add.
 
 ```
 claude-scraper/
@@ -386,7 +385,7 @@ Sitemap `lastmod` is unusable (§2e), so the ladder is:
 
 1. **Conditional GET** where supported. Databricks returns `304` with an empty body —
    send stored `ETag`/`Last-Modified`, record `not_modified`, skip everything downstream.
-   This makes the 5,814-page refresh nearly free.
+   This makes the 5,720-page refresh nearly free.
 2. **Raw content hash.** Anthropic sends `no-store`, so re-fetch and compare
    `raw_sha256`. Unchanged → skip extraction and any enrichment.
 3. **Extracted content hash.** The existing `content_hash` over the cleaned body decides
@@ -436,8 +435,9 @@ the corpus.
 | `store/index.py` | **keep the shape**, extend: add `source_id`, `raw_path`, `extractor_version`; keep `content_hash`; retire the `lastmod`-based `needs_refresh` path in favour of §8 |
 | `coverage.py` + `docs/coverage.md` | **keep** — the category-derivation logic is directly reusable for §7.3 |
 | `config.py` | **extend** — per-source fetcher/extractor selection, politeness defaults |
-| `ingest/fetch_enrich*.py`, `cc_runner.py`, `scripts/run_batch_cc.py` | **retire** — replaced by fetch/extract; the windowed usage-limit runner has no purpose once fetching is free |
-| `ingest/schema.py` | **retire `PageRecord`** in favour of `Extracted` + optional enrichment fields |
+| `ingest/`, `cc_runner.py`, `scripts/{smoke_ingest*,run_batch_cc}.py` | ✅ **deleted in step 0** — replaced by fetch/extract; the windowed usage-limit runner has no purpose once fetching is free |
+| `ingest/schema.py` → `schema.py` | moved out of `ingest/` because `store/` still imports `PageRecord`; **retire it** for `Extracted` + optional enrichment fields at step 5 |
+| `config.model`, `max_content_tokens`, `BatchConfig` | ✅ **removed in step 0** — every reader was in the retired modules |
 
 New dependencies: `httpx[http2]`, `beautifulsoup4`+`lxml`, `markdownify`, `trafilatura`
 (fallback extractor), `patchright` (tier 2 only, optional extra), `tenacity` (retries).
@@ -455,7 +455,7 @@ Each step ends with something runnable and verifiable.
    at a path that did not exist), `scraper.*` imports resolve, `config/sources.yaml`
    loads, `state/index.db` reads back its 14 rows, and `scripts/coverage.py` runs.
    The declared `scraper` console entry point stays broken until `cli.py` lands in step 7.
-1. **Worklist** — dump reader + filters + robots check. Verify: 566 / 95 / 5,814 URLs for
+1. **Worklist** — dump reader + filters + robots check. Verify: 566 / 95 / 5,720 URLs for
    the three phase-1 sources, matching §3. No network beyond `robots.txt`.
 2. **Raw store + `fetch.db`** — write/read/gz round-trip, path mirroring, collision test.
 3. **Tier 1 fetcher** — httpx async, politeness, retries, conditional GET. Run against
@@ -466,7 +466,7 @@ Each step ends with something runnable and verifiable.
    raw files from steps 3–4 and **read 10 outputs by hand**. This is the step where
    quality is actually decided; do not skim it.
 6. **Corpus writer + index** — wire `store/` in, confirm idempotent paths and hashes.
-7. **Full phase-1 run** — 6,475 pages. Review the run summary, then the quality-gate
+7. **Full phase-1 run** — 6,381 pages. Review the run summary, then the quality-gate
    failures, then fix extractors and re-run `extract --force` (no refetch).
 8. **`nextjs_article`** for the cookbook, using raw files already on disk.
 9. **Optional: enrichment** — 50-page sample across models, then a Batch run.

@@ -1,7 +1,12 @@
 """Configuration schema and loader for claude-scraper.
 
-The config (``config/sources.yaml``) drives which sites are scraped, which paths are
-kept, the date window, and the fixed per-company theme taxonomy. See PLAN.md §4.
+The config (``config/sources.yaml``) drives which sites are scraped and which paths are
+kept. See PLAN.md §5.
+
+Still to come (PLAN.md §5): per-source ``fetcher``/``extractor`` selection, seed
+declarations, and the politeness defaults. ``themes`` is a leftover of the retired
+LLM-classification path and disappears once the corpus is laid out by URL-derived
+``category`` instead (PLAN.md §7.3).
 """
 
 from __future__ import annotations
@@ -40,36 +45,13 @@ class Filters(BaseModel):
     max_pages: int | None = Field(default=None, ge=1)
 
 
-class BatchConfig(BaseModel):
-    """Controls the windowed (usage-limit-aware) batch runner. See PLAN / cc_runner.py."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    size: int = Field(default=100, ge=1, description="Max pages ingested per run")
-    max_attempts: int = Field(default=3, ge=1, description="Retry cap for errored URLs")
-    stop_utilization: float = Field(
-        default=0.9, ge=0.0, le=1.0,
-        description="Stop the run once the active usage window is this full",
-    )
-    companies: list[str] | None = Field(
-        default=None, description="Restrict runs to these companies (None = all)"
-    )
-    priorities: list[str] = Field(
-        default_factory=list,
-        description="Ordered path-prefix patterns; earlier = scraped first",
-    )
-
-
 class AppConfig(BaseModel):
     """Top-level application configuration."""
 
     model_config = ConfigDict(extra="forbid")
 
-    model: str = "claude-sonnet-4-6"
-    max_content_tokens: int = Field(default=30000, ge=1)
     sources: dict[str, SourceConfig] = Field(min_length=1)
     filters: Filters = Field(default_factory=Filters)
-    batch: BatchConfig = Field(default_factory=BatchConfig)
 
     def themes_for(self, company: str) -> list[str]:
         """Allowed theme values for a company. Raises KeyError if the company is unknown."""

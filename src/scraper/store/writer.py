@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from ..ingest.schema import PageRecord
+from ..schema import PageRecord
 
 
 def content_hash(markdown: str) -> str:

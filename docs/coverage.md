@@ -1,8 +1,8 @@
 # Coverage & category breakdown
 
 A read-only tool to (a) **monitor how much of the corpus is scraped** and (b) **see the
-sitemap's categories with counts** so you can choose `batch.priorities`. It spends **no
-tokens** — it only reads sitemaps (discovery) and the local index.
+sitemap's categories with counts** so you can decide what to scrape next. It only reads
+sitemaps (discovery) and the local index — no page fetches, no model calls.
 
 ## Why both jobs are one tool
 
@@ -14,12 +14,12 @@ single command shows progress *and* the pickable categories.
 
 - **category** — derived from the URL *path* (the sitemap section), e.g.
   `agents-and-tools` → prefix `/docs/en/agents-and-tools/`. This is what
-  `batch.priorities` matches on (path-prefixes), so the tool groups by category and prints
+  path filters match on, so the tool groups by category and prints
   each category's prefix ready to paste into config.
 - **theme** — Claude's *content* classification (`prompt-caching`, `agents`, …), used only
   to lay out the `data/` folder. Not used here.
 
-You pick priorities by category, not theme.
+You choose scope by category, not theme.
 
 ## Design: reusable compute + thin CLI
 
@@ -58,16 +58,12 @@ Monitor overall progress:
 uv run python scripts/coverage.py --overview
 ```
 
-Pick priorities — biggest, least-done sections first, with copy-paste prefixes:
+See the biggest, least-done sections first, with copy-paste path prefixes:
 ```
 uv run python scripts/coverage.py --company databricks --sort pending
 ```
-Copy a row's `prefix` (e.g. `/aws/en/mlflow3/`) into `config/sources.yaml`:
-```yaml
-batch:
-  priorities:
-    - /aws/en/mlflow3/
-```
+A row's `prefix` (e.g. `/aws/en/mlflow3/`) can be pasted into a source's `include_paths`
+or `exclude_paths` in `config/sources.yaml` to narrow or widen a run.
 
 Discover sections currently outside scope (to widen `include_paths`):
 ```

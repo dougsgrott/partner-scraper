@@ -18,7 +18,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Self
 
-from ..ingest.schema import PageRecord
+from ..schema import PageRecord
 from . import writer
 
 DEFAULT_DB_PATH = Path("state/index.db")

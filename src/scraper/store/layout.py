@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ..ingest.schema import PageRecord
+from ..schema import PageRecord
 
 DEFAULT_DATA_DIR = Path("data")
 _UNDATED = "undated"
