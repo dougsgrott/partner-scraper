@@ -21,6 +21,7 @@ scraper = "scraper.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "pytest-asyncio>=1.4.0",
     "ruff>=0.6",
 ]
 
@@ -33,3 +34,7 @@ packages = ["src/scraper"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

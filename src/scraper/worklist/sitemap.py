@@ -1,8 +1,8 @@
-"""Sitemap discovery: robots.txt -> sitemap.xml -> URL list.
+"""Sitemap collection: sitemap.xml (+ sitemap-index) -> URL list. See PLAN.md §5.
 
-Fully deterministic and token-free. This is the only place we fetch over HTTP ourselves
-(robots.txt + sitemap XML) — page *content* is fetched by Claude's web_fetch tool in the
-ingest layer. See PLAN.md §5.1.
+Deterministic and side-effect free apart from the fetches themselves. Sitemap documents
+are metadata, not page content — the page fetchers in `scraper.fetch` are rate-limited
+separately (PLAN.md §6.2).
 """
 
 from __future__ import annotations
@@ -11,16 +11,15 @@ import gzip
 import logging
 import xml.etree.ElementTree as ET
 from datetime import date, datetime
-from typing import NamedTuple
-from urllib.parse import urlparse
+from typing import TYPE_CHECKING, NamedTuple
 
 import httpx
 
-from ..config import SourceConfig
+if TYPE_CHECKING:
+    from .robots import RobotsCache
 
 logger = logging.getLogger(__name__)
 
-_USER_AGENT = "claude-scraper/0.1 (+https://github.com/; docs sync)"
 _DEFAULT_TIMEOUT = 30.0
 
 
@@ -96,62 +95,75 @@ def _parse_sitemap(content: bytes) -> tuple[list[str], list[DiscoveredURL]]:
     return children, urls
 
 
-def _get(client: httpx.Client, url: str) -> bytes | None:
-    """Fetch a URL, returning decompressed bytes or None on any error."""
+def _get(client: httpx.Client, url: str) -> tuple[bytes, str] | None:
+    """Fetch a URL, returning (decompressed bytes, final URL) or None on any error.
+
+    The final URL matters: `docs.databricks.com/sitemap.xml` 301s to
+    `/aws/en/sitemap.xml`, which robots.txt *also* declares — without comparing
+    post-redirect URLs we would request the same document twice every run.
+    """
     try:
         resp = client.get(url)
         resp.raise_for_status()
     except httpx.HTTPError as exc:
         logger.warning("fetch failed for %s: %s", url, exc)
         return None
-    return _maybe_gunzip(resp.content)
-
-
-def _sitemaps_from_robots(client: httpx.Client, sitemap_urls: list[str]) -> list[str]:
-    """Discover extra sitemap URLs from each host's robots.txt (Sitemap: directives)."""
-    robots_urls: list[str] = []
-    for raw in sitemap_urls:
-        parsed = urlparse(raw)
-        if parsed.scheme and parsed.netloc:
-            robots_urls.append(f"{parsed.scheme}://{parsed.netloc}/robots.txt")
-
-    found: list[str] = []
-    for robots_url in dict.fromkeys(robots_urls):
-        content = _get(client, robots_url)
-        if not content:
-            continue
-        for line in content.decode("utf-8", "replace").splitlines():
-            line = line.strip()
-            if line.lower().startswith("sitemap:"):
-                found.append(line.split(":", 1)[1].strip())
-    return found
+    return _maybe_gunzip(resp.content), str(resp.url)
 
 
 def collect(
-    source: SourceConfig,
+    sitemap_urls: list[str],
     *,
     client: httpx.Client | None = None,
+    robots: RobotsCache | None = None,
     timeout: float = _DEFAULT_TIMEOUT,
+    user_agent: str = "claude-scraper",
 ) -> list[DiscoveredURL]:
-    """Collect all URLs for a source from its sitemaps (+ robots.txt-declared ones).
+    """Collect URLs from the given sitemaps, plus any the hosts' robots.txt declares.
 
     Follows sitemap-index files exactly one level deep. Deduplicates by URL. Never
-    raises for network/parse errors on individual documents — it logs and skips.
+    raises for network/parse errors on individual documents — it logs and skips, so one
+    unreachable sitemap cannot take down a multi-source run.
     """
+    if not sitemap_urls:
+        return []
+
     own_client = client is None
     if client is None:
         client = httpx.Client(
             timeout=timeout,
             follow_redirects=True,
-            headers={"User-Agent": _USER_AGENT},
+            headers={"User-Agent": user_agent},
         )
 
     try:
-        seeds = list(dict.fromkeys(source.sitemaps + _sitemaps_from_robots(client, source.sitemaps)))
-        results: dict[str, DiscoveredURL] = {}
+        declared: list[str] = []
+        if robots is not None:
+            # robots.txt is already being fetched for its rules; reuse it rather than
+            # asking the same host for the same file twice.
+            for url in sitemap_urls:
+                declared.extend(robots.sitemaps_for(url))
 
-        for seed in seeds:
-            content = _get(client, seed)
+        results: dict[str, DiscoveredURL] = {}
+        seen: set[str] = set()
+
+        def fetch_once(url: str) -> bytes | None:
+            """Fetch a sitemap unless we already have it, before or after redirects."""
+            if url in seen:
+                return None
+            seen.add(url)
+            got = _get(client, url)
+            if got is None:
+                return None
+            content, final_url = got
+            if final_url != url and final_url in seen:
+                logger.debug("%s redirects to already-fetched %s", url, final_url)
+                return None
+            seen.add(final_url)
+            return content
+
+        for seed in dict.fromkeys(sitemap_urls + declared):
+            content = fetch_once(seed)
             if content is None:
                 continue
             child_sitemaps, urls = _parse_sitemap(content)
@@ -160,7 +172,7 @@ def collect(
 
             # Follow index entries one level only.
             for child in child_sitemaps:
-                child_content = _get(client, child)
+                child_content = fetch_once(child)
                 if child_content is None:
                     continue
                 grandchildren, child_urls = _parse_sitemap(child_content)

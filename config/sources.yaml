@@ -1,44 +1,60 @@
-# Sources to scrape. See PLAN.md §5 — this file gains per-source `seeds`, `fetcher`,
-# and `extractor` keys, plus global politeness `defaults`, as those land.
-sources:
-  anthropic:
-    sitemaps: # both are listed in platform.claude.com/robots.txt
-      - https://platform.claude.com/sitemap.xml
-      - https://platform.claude.com/cookbook/sitemap.xml
-    # Docs are served per-locale under /docs/{locale}/; pin to English to avoid
-    # ingesting the same page in de/es/fr/... /cookbook/ has no locale segment.
-    include_paths: # keep only URLs whose path matches one of these prefixes
-      - /docs/en/
-      - /cookbook/
-    exclude_paths: [] # drop URLs matching any of these (wins over include_paths)
-    # TRANSITIONAL: the LLM-classification taxonomy from the retired v1 path. Still read
-    # by store/layout.py for the folder name; replaced by URL-derived `category` in
-    # PLAN.md §7.3, at which point this key goes away.
-    themes:
-      - prompt-caching
-      - tool-use
-      - agents
-      - models-and-pricing
-      - streaming
-      - other
+# Sources to scrape. A source is a *tier unit*, not a company — see PLAN.md §5.
+# Politeness knobs (concurrency, requests_per_second, retries) join `defaults` in step 3.
 
-  databricks:
-    sitemaps:
-      - https://docs.databricks.com/sitemap.xml
-    # Docs are triplicated across clouds (/aws/, /gcp/, /azure/) and localized;
-    # pin to one cloud + English so each doc is ingested once.
-    include_paths:
-      - /aws/en/
-    exclude_paths: # disallowed by docs.databricks.com/robots.txt
+defaults:
+  user_agent: "indicium-docs-scraper/0.2 (+doug.sgrott@gmail.com)"
+  timeout_s: 30
+  respect_robots: true # drop robots.txt-disallowed URLs from the worklist
+
+sources:
+  anthropic-docs:
+    company: anthropic
+    # Docs are served per-locale under /docs/{locale}/; pin to English so the same page
+    # is not ingested a dozen times over.
+    seeds:
+      - {type: dump, path: sitemap-dumps/anthropic_all_urls.txt}
+      - {type: sitemap, url: https://platform.claude.com/sitemap.xml}
+    include_paths: [/docs/en/]
+    exclude_paths: []
+    fetcher: markdown_endpoint # `.md` twin of each page — no HTML parsing (PLAN.md §2a)
+    extractor: passthrough_md
+
+  anthropic-cookbook:
+    company: anthropic
+    # No `.md` twin here (404s) and no locale segment — plain HTML.
+    seeds:
+      - {type: dump, path: sitemap-dumps/anthropic_all_urls.txt}
+      - {type: sitemap, url: https://platform.claude.com/cookbook/sitemap.xml}
+    include_paths: [/cookbook/]
+    exclude_paths: []
+    fetcher: http
+    extractor: nextjs_article
+
+  databricks-docs:
+    company: databricks
+    # Docs are triplicated across clouds (/aws/, /gcp/, /azure/) and localized; pin to
+    # one cloud + English so each doc is fetched once.
+    seeds:
+      - {type: dump, path: sitemap-dumps/databricks_all_urls.txt}
+      - {type: sitemap, url: https://docs.databricks.com/sitemap.xml}
+    include_paths: [/aws/en/]
+    exclude_paths: # also disallowed by robots.txt; listed so a dry run needs no network
       - /aws/en/archive/
       - /aws/en/search-for
-    themes: # transitional — see note above
-      - delta-lake
-      - unity-catalog
-      - mlflow
-      - workflows
-      - sql-warehouse
-      - other
+    fetcher: http
+    extractor: docusaurus
+
+  # Phase 2 (PLAN.md §13): the REST reference is a client-rendered SPA shell — 31
+  # characters of text without a browser — so it waits for the tier-2 fetcher.
+  databricks-api:
+    company: databricks
+    enabled: false
+    seeds:
+      - {type: dump, path: sitemap-dumps/databricks_all_urls.txt}
+    include_paths: [/api/]
+    exclude_paths: []
+    fetcher: browser
+    extractor: docusaurus
 
 # Global filters, overridable per run (e.g. from CLI flags).
 filters:
