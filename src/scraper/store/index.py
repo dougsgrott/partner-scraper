@@ -12,12 +12,13 @@ corpus?"; that one answers "what did we ask for and what came back?".
 from __future__ import annotations
 
 import logging
-import sqlite3
+import os
 from collections import Counter
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Self
 
+from ..db import connect
 from ..records import Extracted
 from . import writer
 
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS pages (
     updated_date      TEXT,
     content_hash      TEXT,
     raw_sha256        TEXT,
+    body_chars        INTEGER,
     file_path         TEXT,
     extractor         TEXT,
     extractor_version TEXT,
@@ -51,7 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_pages_status   ON pages(status);
 
 _COLUMNS = [
     "url", "company", "source_id", "category", "title", "description",
-    "published_date", "updated_date", "content_hash", "raw_sha256", "file_path",
+    "published_date", "updated_date", "content_hash", "raw_sha256", "body_chars", "file_path",
     "extractor", "extractor_version", "extracted_at", "status", "error",
 ]
 
@@ -70,8 +72,7 @@ class Index:
     def __init__(self, db_path: str | Path = DEFAULT_DB_PATH):
         self.path = Path(db_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.path)
-        self.conn.row_factory = sqlite3.Row
+        self.conn = connect(self.path)
         self._migrate()
         self.conn.executescript(_SCHEMA)
         self.conn.commit()
@@ -88,6 +89,12 @@ class Index:
             logger.warning("replacing the v1 index schema (theme → category); rebuildable from data/")
             self.conn.execute("DROP TABLE pages")
             self.conn.commit()
+            return
+        # Additive columns can just be added; the values fill in on the next extract pass.
+        for column, ddl in (("body_chars", "INTEGER"),):
+            if cols and column not in cols:
+                self.conn.execute(f"ALTER TABLE pages ADD COLUMN {column} {ddl}")
+                self.conn.commit()
 
     # -- context manager -------------------------------------------------
     def __enter__(self) -> Self:
@@ -131,6 +138,7 @@ class Index:
             "updated_date": _iso(record.updated_date),
             "content_hash": content_hash,
             "raw_sha256": raw_sha256,
+            "body_chars": record.body_chars,
             "file_path": str(file_path),
             "extractor": record.extractor,
             "extractor_version": record.extractor_version,
@@ -149,14 +157,21 @@ class Index:
 
     def record_duplicate(self, url: str, company: str, *, file_path: str | Path,
                          duplicate_of: str, source_id: str | None = None,
-                         extractor_version: str | None = None) -> None:
-        """Record that this URL names a document already in the corpus."""
+                         extractor_version: str | None = None,
+                         raw_sha256: str | None = None) -> None:
+        """Record that this URL names a document already in the corpus.
+
+        `raw_sha256` is kept for the same reason an `ok` row keeps it: without it the
+        row never satisfies `needs_extract`, so a settled duplicate would be re-extracted
+        on every incremental run forever.
+        """
         self._upsert({
             "url": url,
             "company": company,
             "source_id": source_id,
             "file_path": str(file_path),
             "extractor_version": extractor_version,
+            "raw_sha256": raw_sha256,
             "extracted_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "status": "duplicate",
             "error": f"same document as {duplicate_of}",
@@ -226,6 +241,36 @@ class Index:
         cur = self.conn.execute(f"SELECT * FROM pages{where} ORDER BY url", params)
         return [dict(r) for r in cur.fetchall()]
 
+    def file_paths(self, status: str = "ok") -> set[str]:
+        """Every corpus path the index claims — the set of files that should exist."""
+        cur = self.conn.execute(
+            "SELECT file_path FROM pages WHERE status = ? AND file_path IS NOT NULL", (status,)
+        )
+        return {_norm(r["file_path"]) for r in cur}
+
+    def orphans(self, data_dir: str | Path = "data") -> list[Path]:
+        """Corpus files no `ok` row claims.
+
+        These are left behind when a page moves — its date bucket rolls over, or a
+        revised extractor derives a different category — and nothing else would ever
+        notice them: the index points at the new file, so the stale copy simply sits in
+        `data/` being read by anything that globs the corpus.
+        """
+        owned = self.file_paths()
+        return sorted(p for p in Path(data_dir).rglob("*.md") if _norm(p) not in owned)
+
+    def largest(self, limit: int = 5) -> list[dict]:
+        """The biggest pages in the corpus.
+
+        Worth watching: a handful of API-reference pages are thousands of times the size
+        of a typical doc, which matters for anything that chunks or embeds the corpus.
+        """
+        cur = self.conn.execute(
+            "SELECT url, file_path, body_chars FROM pages "
+            "WHERE status = 'ok' AND body_chars IS NOT NULL "
+            "ORDER BY body_chars DESC LIMIT ?", (limit,))
+        return [dict(r) for r in cur]
+
     def counts(self) -> dict[str, int]:
         counts = Counter({status: 0 for status in STATUSES})
         for row in self.conn.execute("SELECT status, COUNT(*) AS n FROM pages GROUP BY status"):
@@ -238,7 +283,7 @@ class Index:
         self.conn.execute("DELETE FROM pages")
         count = 0
         for md in sorted(Path(data_dir).rglob("*.md")):
-            front, _ = writer.parse(md)
+            front, body = writer.parse(md)
             if not front.get("source_url"):
                 continue
             extractor, _, version = str(front.get("extractor", "")).partition("@")
@@ -253,6 +298,7 @@ class Index:
                 "updated_date": _date_str(front.get("updated_date")),
                 "content_hash": front.get("content_hash"),
                 "raw_sha256": front.get("raw_sha256"),
+                "body_chars": len(body.strip()),
                 "file_path": str(md),
                 "extractor": extractor or None,
                 "extractor_version": version or None,
@@ -263,6 +309,10 @@ class Index:
             count += 1
         self.conn.commit()
         return count
+
+
+def _norm(path: str | Path) -> str:
+    return os.path.normpath(str(path))
 
 
 def _date_str(value) -> str | None:

@@ -130,3 +130,26 @@ def test_build_respects_disabled_robots(dump_file):
     wl = build("s", src, robots=BlockAll(), respect_robots=False, use_sitemaps=False)
     assert wl.counts.robots_blocked == 0
     assert wl.counts.final == 2
+
+
+# --- dump round-trip (PLAN.md §12 step 7) ---------------------------------
+
+def test_dump_write_round_trips_and_is_stable(tmp_path):
+    """A refreshed dump must diff as "the site added these pages", not as a reshuffle."""
+    from datetime import date
+
+    from scraper.worklist import dumps
+    from scraper.worklist.sitemap import DiscoveredURL
+
+    urls = [
+        DiscoveredURL("https://x.com/b", date(2026, 7, 10)),
+        DiscoveredURL("https://x.com/a", None),
+        DiscoveredURL("https://x.com/b", date(2026, 7, 10)),      # duplicate
+    ]
+    path = tmp_path / "dump.txt"
+    assert dumps.write(path, urls) == 2
+
+    lines = path.read_text().splitlines()
+    assert lines == ["----------  https://x.com/a", "2026-07-10  https://x.com/b"]
+    assert dumps.read(path) == [DiscoveredURL("https://x.com/a", None),
+                                DiscoveredURL("https://x.com/b", date(2026, 7, 10))]

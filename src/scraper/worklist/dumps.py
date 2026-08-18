@@ -70,3 +70,23 @@ def read(path: str | Path) -> list[DiscoveredURL]:
             found.setdefault(item.url, item)
     logger.info("dump %s: %d URLs", path, len(found))
     return list(found.values())
+
+
+def write(path: str | Path, urls: list[DiscoveredURL]) -> int:
+    """Rewrite a dump file from freshly collected URLs. Returns the line count.
+
+    Sorted and written atomically so the committed file has a stable diff: refreshing a
+    dump should show the pages the site added, not a reshuffle.
+    """
+    import os
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        f"{du.lastmod.isoformat() if du.lastmod else _NO_DATE * 10}  {du.url}"
+        for du in sorted(dict.fromkeys(urls), key=lambda d: d.url)
+    ]
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return len(lines)

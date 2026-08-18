@@ -47,7 +47,7 @@ SPA shell and record it as a success.
 
 ```bash
 uv sync                    # Python 3.12+
-uv run pytest              # 146 tests, no network
+uv run pytest              # 184 tests, no network
 ```
 
 ## Usage
@@ -58,6 +58,7 @@ uv run pytest              # 146 tests, no network
 uv run python scripts/worklist.py                      # what would we fetch?
 uv run python scripts/worklist.py --offline            # dumps only, no network at all
 uv run python scripts/worklist.py --source databricks-docs --sample 5
+uv run python scripts/worklist.py --refresh-dumps      # merge live sitemaps into the dumps
 uv run python scripts/coverage.py --overview           # how much is already in the corpus?
 ```
 
@@ -65,8 +66,12 @@ uv run python scripts/coverage.py --overview           # how much is already in 
 
 ```
 databricks-docs  (databricks)
-  seeded  37689   -out-of-scope  31969   -robots    0   -capped     0   =>   5720
+  seeded  37712   -out-of-scope  31969   -robots    0   -capped     0   =>   5743
 ```
+
+`sitemap-dumps/` is what makes `--offline` possible, and it drifts as the sites publish.
+`--refresh-dumps` merges the live sitemaps back in; it only ever **adds** URLs, because
+the dumps cover every locale and cloud while the configured seed advertises one tree.
 
 ### Extract
 
@@ -77,6 +82,7 @@ uv run python scripts/extract.py                        # extract what's new or 
 uv run python scripts/extract.py --force                # re-extract everything (~8 min)
 uv run python scripts/extract.py --only-failed          # retry past failures
 uv run python scripts/extract.py --source databricks-docs --limit 20
+uv run python scripts/extract.py --prune                # also delete orphaned files
 ```
 
 Re-extraction is automatic when an extractor's `VERSION` is bumped — fixing a parser bug
@@ -95,10 +101,20 @@ source_url: https://docs.databricks.com/aws/en/delta/
 breadcrumbs: [Tables, Table formats, Delta Lake]
 extractor: docusaurus@4
 content_hash: 385f9eb4…
+raw_sha256: f580d86f…
+extracted_at: '2026-08-18T13:38:04+00:00'
 ---
 ```
 
 `category` comes from the URL path, not from a model — the docs' own taxonomy, for free.
+`raw_sha256` names the archived bytes the file was parsed from, which is what lets
+`index.db` be rebuilt from `data/` alone.
+
+**Re-extracting an unchanged page rewrites nothing** — same bytes, same mtime — so a
+`--force` pass leaves the corpus untouched where nothing was actually said differently.
+When a page *does* move (its `updated_date` rolls into a new month, or a revised extractor
+files it under a different category), the file it used to occupy is deleted rather than
+left behind as a stale twin. `--prune` sweeps anything the index no longer claims.
 
 Pages that fail the quality gate get an index row with a reason and **no file**, so a
 silent extraction failure can't masquerade as a real document. Their raw bytes stay on
@@ -175,7 +191,7 @@ Add a partner site by adding a source. If no bespoke extractor fits it yet, `gen
 | `sitemap-dumps/` | committed URL dumps; let the worklist run fully offline |
 | `src/scraper/worklist/` | seeds → filters → robots → the list of URLs to fetch |
 | `src/scraper/fetch/` | rate limiting, the HTTP fetcher, the raw archive, and `fetch.db` |
-| `src/scraper/store/` | corpus writer + `index.db` manifest |
+| `src/scraper/store/` | corpus writer (idempotent) + `index.db` manifest |
 | `raw/` | **archive** — verbatim page bytes, gzipped. Gitignored, never hand-edited |
 | `data/` | **corpus** — the Markdown output. Gitignored; rebuildable from `raw/` |
 | `state/fetch.db` | what we asked for, what came back, HTTP validators |
@@ -194,9 +210,10 @@ Add a partner site by adding a source. If no bespoke extractor fits it yet, `gen
 | 2 · raw store + `fetch.db` | ✅ done — 0 collisions over 40,618 URLs; 304 revalidation confirmed live |
 | 3 · tier-1 HTTP fetcher + politeness | ✅ done — 50 live pages, then 50 × `304` on refresh |
 | 4 · tier-0 `.md` fetcher | ✅ done — Anthropic docs fetched as native Markdown |
-| 5 · extractors + corpus | ✅ done — **6,301 pages, 77.4 MiB**, 1 quality failure |
-| 6–7 · full-corpus run + review | next |
-| 8 · cookbook extractor (`nextjs_article`) | planned — 95 pages currently deferred |
+| 5 · extractors + corpus | ✅ done — **6,301 pages, 77.9 MiB**, 1 quality failure |
+| 6 · corpus writer + index | ✅ done — a second `--force` pass rewrote **0 of 6,301** files; index rebuilds from `data/` exactly |
+| 7 · full phase-1 run + review | ✅ done — scope reconciled, dumps refreshed, two more extraction defects fixed |
+| 8 · cookbook extractor (`nextjs_article`) | next — 95 pages archived and currently deferred |
 | 9–10 · enrichment, browser tier | planned |
 
 A full cold crawl of phase 1 is ~1 h 45 m at the configured rate. Re-extracting the entire
