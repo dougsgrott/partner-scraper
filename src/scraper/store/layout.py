@@ -1,41 +1,42 @@
-"""Build the on-disk path for a page: data/{company}/{theme}/{YYYY-MM}/{slug}.md.
+"""Build the on-disk path for a corpus page. See PLAN.md §7.3.
 
-Deterministic and idempotent — the same URL always maps to the same path, so re-runs
-overwrite in place rather than accumulating duplicates. See PLAN.md §5.3.
+    data/{company}/{category}/{YYYY-MM}/{slug}.md
 
-Note: the slug is derived from the URL (not carried on PageRecord, which is the LLM
-contract), so path_for takes the url explicitly.
+`category` comes from the URL path (`scraper.category`), not from a model's judgement, so
+the same page lands in the same place on every run — re-extraction overwrites in place
+instead of accumulating near-duplicates under drifting folder names.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from urllib.parse import urlparse
 
-from ..schema import PageRecord
+from ..category import slug_for
+from ..records import Extracted
 
 DEFAULT_DATA_DIR = Path("data")
-_UNDATED = "undated"
+UNDATED = "undated"
 
 
-def _slugify(text: str) -> str:
-    """Lowercase, collapse non-alphanumerics to single hyphens, trim. Empty -> 'index'."""
-    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug or "index"
+def date_bucket(record: Extracted) -> str:
+    """`YYYY-MM` from the updated date, else the published date, else `undated`."""
+    when = record.updated_date or record.published_date
+    return when.strftime("%Y-%m") if when else UNDATED
 
 
-def slug_for(url: str) -> str:
-    """Stable slug from a URL's path (query/fragment dropped)."""
-    return _slugify(urlparse(url).path.strip("/"))
+def path_for(record: Extracted, base_dir: Path | None = None) -> Path:
+    """Full destination path for an extracted page."""
+    base = Path(base_dir or DEFAULT_DATA_DIR)
+    return (
+        base
+        / _safe(record.company)
+        / _safe(record.category)
+        / date_bucket(record)
+        / f"{slug_for(record.source_url)}.md"
+    )
 
 
-def date_bucket(record: PageRecord) -> str:
-    """'YYYY-MM' from updated_date (preferred) or published_date; else 'undated'."""
-    d = record.updated_date or record.published_date
-    return d.strftime("%Y-%m") if d else _UNDATED
-
-
-def path_for(record: PageRecord, url: str, base_dir: Path = DEFAULT_DATA_DIR) -> Path:
-    """Full destination path for a page."""
-    return Path(base_dir) / record.company / record.theme / date_bucket(record) / f"{slug_for(url)}.md"
+def _safe(segment: str) -> str:
+    """Category labels come from URLs, so keep them to one path segment."""
+    cleaned = segment.strip().strip("/").replace("/", "-")
+    return cleaned or "other"

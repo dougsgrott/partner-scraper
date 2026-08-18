@@ -47,7 +47,7 @@ SPA shell and record it as a success.
 
 ```bash
 uv sync                    # Python 3.12+
-uv run pytest              # 119 tests, no network
+uv run pytest              # 146 tests, no network
 ```
 
 ## Usage
@@ -67,6 +67,42 @@ uv run python scripts/coverage.py --overview           # how much is already in 
 databricks-docs  (databricks)
   seeded  37689   -out-of-scope  31969   -robots    0   -capped     0   =>   5720
 ```
+
+### Extract
+
+Reads `raw/`, writes `data/`. Never touches the network, so re-run it as often as you like.
+
+```bash
+uv run python scripts/extract.py                        # extract what's new or changed
+uv run python scripts/extract.py --force                # re-extract everything (~8 min)
+uv run python scripts/extract.py --only-failed          # retry past failures
+uv run python scripts/extract.py --source databricks-docs --limit 20
+```
+
+Re-extraction is automatic when an extractor's `VERSION` is bumped — fixing a parser bug
+means editing it, bumping the version, and re-running. No refetching, ever.
+
+Each page becomes one Markdown file with YAML frontmatter:
+
+```yaml
+---
+title: What is Delta Lake in Databricks?
+company: databricks
+category: delta
+description: Delta Lake is the default open-source storage format…
+updated_date: 2026-07-10
+source_url: https://docs.databricks.com/aws/en/delta/
+breadcrumbs: [Tables, Table formats, Delta Lake]
+extractor: docusaurus@4
+content_hash: 385f9eb4…
+---
+```
+
+`category` comes from the URL path, not from a model — the docs' own taxonomy, for free.
+
+Pages that fail the quality gate get an index row with a reason and **no file**, so a
+silent extraction failure can't masquerade as a real document. Their raw bytes stay on
+disk; fix the extractor and re-run.
 
 ### Fetch
 
@@ -157,10 +193,12 @@ Add a partner site by adding a source. If no bespoke extractor fits it yet, `gen
 | 1 · worklist (dumps, filters, robots) | ✅ done — 566 / 95 / 5,720 = **6,381** URLs in scope |
 | 2 · raw store + `fetch.db` | ✅ done — 0 collisions over 40,618 URLs; 304 revalidation confirmed live |
 | 3 · tier-1 HTTP fetcher + politeness | ✅ done — 50 live pages, then 50 × `304` on refresh |
-| 4 · tier-0 `.md` fetcher | ✅ done — 50 Anthropic docs pages as native Markdown |
-| 5 · extractors | next |
-| 6–7 · corpus writer, full run | planned |
-| 8–10 · cookbook extractor, enrichment, browser tier | planned |
+| 4 · tier-0 `.md` fetcher | ✅ done — Anthropic docs fetched as native Markdown |
+| 5 · extractors + corpus | ✅ done — **6,301 pages, 77.4 MiB**, 1 quality failure |
+| 6–7 · full-corpus run + review | next |
+| 8 · cookbook extractor (`nextjs_article`) | planned — 95 pages currently deferred |
+| 9–10 · enrichment, browser tier | planned |
 
-A full cold crawl of phase 1 is ~1 h 45 m at the configured rate; re-extracting the whole
-corpus from `raw/` takes seconds and no requests.
+A full cold crawl of phase 1 is ~1 h 45 m at the configured rate. Re-extracting the entire
+corpus from `raw/` takes ~8 minutes and **no requests at all** — which is the property the
+whole design is built around.
