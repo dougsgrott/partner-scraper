@@ -8,6 +8,7 @@ Examples:
     uv run python scripts/extract.py --force                # re-extract everything
     uv run python scripts/extract.py --only-failed          # retry past failures
     uv run python scripts/extract.py --source databricks-docs --limit 20
+    uv run python scripts/extract.py --prune                # also delete orphaned files
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ def main() -> None:
     ap.add_argument("--limit", type=int, help="stop after N pages (for a trial run)")
     ap.add_argument("--force", action="store_true", help="re-extract even if unchanged")
     ap.add_argument("--only-failed", action="store_true", help="retry pages that failed before")
+    ap.add_argument("--prune", action="store_true",
+                    help="delete corpus files no longer claimed by the index")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -41,6 +44,7 @@ def main() -> None:
         force=args.force,
         only_failed=args.only_failed,
         limit=args.limit,
+        prune=args.prune,
     )
     print(summary.render())
 

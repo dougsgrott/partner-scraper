@@ -139,7 +139,7 @@ DOC_HTML = """
   <div class="theme-doc-toc-mobile">ON THIS PAGE</div>
   <div class="theme-last-updated">Last updated on Jul 10, 2026</div>
   <div class="theme-doc-markdown markdown">
-    <h1>What is <!-- -->Delta Lake<!-- -->?</h1>
+    <header><h1>What is <!-- -->Delta Lake<!-- -->?</h1></header>
     <p>Intro text that is long enough to pass the quality gate. %s</p>
     <p>See <a href="/aws/en/lakehouse/acid">ACID</a>.</p>
     <p><img src="data:image/png;base64,AAAA" alt="check marked yes"/> Databricks SQL</p>
@@ -176,6 +176,16 @@ def test_metadata_is_captured(doc):
     assert record.updated_date == date(2026, 7, 10)
     assert record.breadcrumbs == ["Tables", "Delta Lake"]
     assert record.category == "delta"
+
+
+def test_the_page_keeps_its_own_h1(doc):
+    """REGRESSION: Docusaurus wraps the `<h1>` in a `<header>` *inside* the content root.
+
+    Stripping every `<header>` therefore deleted the title from the body of all 5,735
+    Databricks pages — the frontmatter still had it, so nothing failed; the documents
+    simply started mid-sentence.
+    """
+    assert doc[0].markdown.lstrip().startswith("# What is Delta Lake?")
 
 
 def test_chrome_is_excluded_from_the_body(doc):
@@ -226,6 +236,21 @@ x = 1
 """
 
 
+@pytest.fixture
+def md_record():
+    content = MD.replace(
+        b"The context window refers to the amount of text.",
+        b"See [prompt caching](/docs/en/build-with-claude/prompt-caching) and `[string]()`.\n\n"
+        b"```md\n[example](/still/an/example)\n```",
+    )
+    payload = RawPayload(url="https://platform.claude.com/docs/en/about-claude/glossary",
+                         company="anthropic", source_id="anthropic-docs", content=content,
+                         content_type="text/markdown",
+                         final_url="https://platform.claude.com/docs/en/about-claude/glossary.md",
+                         include_paths=["/docs/en/"])
+    return extract_payload(payload, "passthrough_md")[0]
+
+
 def test_frontmatter_split():
     meta, body = split_frontmatter(MD.decode())
     assert meta["title"] == "Glossary"
@@ -259,6 +284,37 @@ def test_category_ignores_the_md_fetch_suffix():
     record, _ = extract_payload(p, "passthrough_md")
     assert record.category == "get-started"
     assert not record.canonical_url.endswith(".md")
+
+
+def test_rooted_links_are_absolutised(md_record):
+    """REGRESSION: `](/docs/en/…)` in the served Markdown resolves nowhere off-site."""
+    assert "https://platform.claude.com/docs/en/build-with-claude/prompt-caching" in md_record.markdown
+
+
+def test_links_inside_code_fences_are_left_alone(md_record):
+    assert "](/still/an/example)" in md_record.markdown
+
+
+def test_empty_link_targets_are_left_alone(md_record):
+    """The API reference emits `[string]()` for unlinked type names — not a broken link."""
+    assert "[string]()" in md_record.markdown
+
+
+def test_the_document_opens_with_its_title(md_record):
+    assert md_record.markdown.startswith("# Glossary\n")
+
+
+def test_a_title_is_never_stated_twice():
+    """Reference pages already open with their own name, one level down."""
+    body = b"---\ntitle: List Tunnels\nurl: https://platform.claude.com/docs/en/api/x\n---\n\n"
+    body += b"## List Tunnels\n\n" + b"Body. " * 40
+    record, _ = extract_payload(
+        RawPayload(url="https://platform.claude.com/docs/en/api/x", company="anthropic",
+                   source_id="anthropic-docs", content=body, content_type="text/markdown",
+                   final_url="https://platform.claude.com/docs/en/api/x.md",
+                   include_paths=["/docs/en/"]),
+        "passthrough_md")
+    assert record.markdown.startswith("## List Tunnels")
 
 
 def test_unknown_extractor_raises():

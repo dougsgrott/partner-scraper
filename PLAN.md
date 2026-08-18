@@ -141,6 +141,7 @@ claude-scraper/
 ├── sitemap-dumps/                # committed URL dumps (existing format)
 ├── src/scraper/
 │   ├── config.py                 # extended (§5)
+│   ├── db.py                     # ✅ step 7 — one SQLite connection policy (WAL)
 │   ├── worklist/                 # ✅ step 1
 │   │   ├── __init__.py           # build() / build_all() — the seeds→URLs funnel
 │   │   ├── dumps.py              # parse "lastmod<2sp>url" dump files
@@ -166,7 +167,10 @@ claude-scraper/
 │   │   ├── nextjs_article.py     # anthropic /cookbook/ (step 8)
 │   │   └── generic.py            # trafilatura fallback for new sites
 │   ├── enrich/                   # optional LLM pass (§7)
-│   ├── store/                    # layout.py, writer.py, index.py (from v1)
+│   ├── store/                    # ✅ step 6 — from v1, now idempotent + self-describing
+│   │   ├── layout.py             # ✅ step 6 — {company}/{category}/{YYYY-MM}/{slug}.md
+│   │   ├── writer.py             # ✅ step 6 — frontmatter + body, byte-identical rewrites
+│   │   └── index.py              # ✅ step 6 — corpus manifest, rebuildable from data/
 │   └── cli.py                    # fetch | extract | enrich | status | coverage
 ├── raw/                          # ARCHIVE — gitignored, never hand-edited
 │   └── {company}/{host}/{path…}/index.{html,md}.gz
@@ -376,6 +380,24 @@ data/{company}/{category}/{YYYY-MM}/{slug}.md
 This removes the LLM from the critical path entirely and makes folder names stable by
 construction rather than by prompt discipline.
 
+Two properties the writer has to hold up (both verified in step 6):
+
+**Rewriting an unchanged page changes nothing on disk.** Re-extraction is the normal way
+to fix an extractor, so a `--force` pass over 6,301 files must produce 6,301 identical
+files, not 6,301 modified ones. Everything in the frontmatter except `extracted_at` is
+part of the page; `extracted_at` is carried over from the existing file rather than
+restamped, so the bytes and the mtime survive untouched.
+
+**A page that moves leaves nothing behind.** The path embeds `updated_date`, so a doc
+edited into a new month lands in a new folder — and a revised extractor can land it in a
+new category. The index knows the path the page previously occupied and deletes it, and
+`extract --prune` sweeps any file no `ok` row claims. Without this the corpus silently
+accumulates stale copies that read exactly like live pages.
+
+The frontmatter also records `raw_sha256`, the archived bytes the file was parsed from.
+That is what makes the corpus self-describing: `index.rebuild()` restores the full
+change-detection state from `data/` alone, with no reference to `fetch.db`.
+
 ### 7.4 Optional enrichment (Stage C)
 
 Runs over the extracted corpus, writes additional frontmatter keys in place, and is
@@ -404,14 +426,24 @@ Sitemap `lastmod` is unusable (§2e), so the ladder is:
 
 1. **Conditional GET** where supported. Databricks returns `304` with an empty body —
    send stored `ETag`/`Last-Modified`, record `not_modified`, skip everything downstream.
-   This makes the 5,720-page refresh nearly free. Confirmed live in step 2; note
-   CloudFront hands back a *weak* validator (`W/"…"`) when it compresses, which is fine
-   for revalidation — send it back verbatim and the 304 arrives.
+   Confirmed live in step 2; note CloudFront hands back a *weak* validator (`W/"…"`) when
+   it compresses, which is fine for revalidation — send it back verbatim and the 304
+   arrives.
+
+   **But validators there are per-build, not per-page** (measured in step 7): all 5,737
+   Databricks pages carry the same `Last-Modified`, because the site is a static
+   Docusaurus build published as a unit. Any rebuild changes every ETag at once, so a
+   refresh that crosses one re-downloads the entire corpus regardless of how few pages
+   actually changed. Conditional GET is therefore nearly free *between* rebuilds and
+   worth nothing across them — which is exactly why rung 2 exists and why the refresh
+   cadence should be judged in rebuilds, not days.
 2. **Raw content hash.** Anthropic sends `no-store`, so re-fetch and compare
    `raw_sha256`. Unchanged → skip extraction and any enrichment.
-3. **Extracted content hash.** The existing `content_hash` over the cleaned body decides
-   whether the corpus file and index row are rewritten, so cosmetic HTML churn (build IDs,
-   nonces, CSP hashes — all present in the probes) does not produce diff noise.
+3. **Extracted content — body *and* metadata.** A rewrite happens only if the rendered
+   page differs from the file already on disk, so cosmetic HTML churn (build IDs, nonces,
+   CSP hashes — all present in the probes) produces no diff noise. `content_hash` alone
+   would miss a retitled or recategorised page whose body never changed, so the
+   comparison covers the whole frontmatter bar `extracted_at` (step 6).
 4. **Extractor version.** Each extractor carries a version string; bumping it forces
    re-extraction of every page it owns, from `raw/`, with no network access at all.
    Exercised three times in step 5 (docusaurus v1→v4): each pass re-extracted 5,727 pages
@@ -431,7 +463,8 @@ what actually changed → optionally enrich only the new/changed rows.
 
 ```
 scraper fetch    [--source …] [--limit N] [--force] [--tier http|browser]
-scraper extract  [--source …] [--only-failed] [--force]      # never touches the network
+scraper extract  [--source …] [--only-failed] [--force] [--prune]   # never touches the network
+scraper worklist [--offline] [--refresh-dumps]               # sitemaps + robots only
 scraper enrich   [--source …] [--model …] [--batch]          # optional
 scraper status                                               # fetch.db + index.db rollup
 scraper coverage                                             # existing tool, kept
@@ -551,9 +584,84 @@ Each step ends with something runnable and verifiable.
    Every fix was a local re-run over `raw/` — **zero refetches**. Bumping
    `docusaurus.VERSION` re-extracted its 5,727 pages and left the 571 Anthropic ones
    alone, which is §8's extractor-version rung working end to end.
-6. **Corpus writer + index** — wire `store/` in, confirm idempotent paths and hashes.
-7. **Full phase-1 run** — 6,381 pages. Review the run summary, then the quality-gate
-   failures, then fix extractors and re-run `extract --force` (no refetch).
+6. **Corpus writer + index** — ✅ done. `store/{layout,writer,index}.py` wired into
+   `run_extract`, plus `extract --prune`; 29 new tests (175 total), the first coverage
+   this layer has had.
+
+   The step is one claim — *the corpus is a function of the archive* — and testing it
+   found two ways that was false:
+
+   | Defect | Effect |
+   |---|---|
+   | `extracted_at` restamped on every write | **0 of 25** re-extracted files were byte-identical; every `--force` pass presented the whole corpus as modified to git, rsync, and any downstream consumer |
+   | The old file was left behind when a page moved | a doc whose `Last updated` date rolls into a new month is written to a new bucket while the previous month's copy stays in `data/`, unreferenced by the index and indistinguishable from a live page |
+
+   The second is the one that would have done real damage, and only on the refresh path —
+   the corpus is built once, so it cannot appear until the *second* fetch of an edited
+   page. It is silent by construction: the index is right, the new file is right, and the
+   stale copy is only visible to something that reads `data/` off disk, which is exactly
+   what the corpus is for. Date buckets already span 2023-10 to 2026-08 across 5,735
+   dated pages, so this was not hypothetical.
+
+   Also fixed: `raw_sha256` is now written to the frontmatter, so a rebuilt index knows
+   what each file was parsed from instead of re-extracting all 6,301 pages to find out;
+   `layout._safe` refuses `..` as a category, matching the traversal guard `rawstore` has
+   had since step 2; and a `duplicate` row now stores `raw_sha256` too, without which it
+   never satisfied `needs_extract` and was re-resolved on every incremental run.
+
+   Verified on the real corpus: the first `--force` pass rewrote all 6,301 files (adding
+   `raw_sha256`), and the second reported **6,301 written, 6,301 byte-identical** — not
+   one file's bytes *or* mtime changed, `0 moved`, `0 pruned`, `0 orphans`. The index and
+   `data/` agree exactly (6,301 rows, 6,301 files, none missing), and `index.rebuild()`
+   reproduces every `ok` row identically from the files alone. The two settled rows that
+   own no file — the `duplicate` and the one `quality_failed` — are re-derived by the
+   next extract pass, so a rebuilt index converges rather than losing information.
+   Corpus: **77.9 MiB**, +0.5 MiB for the new provenance line.
+7. **Full phase-1 run** — ✅ done. A live `fetch --refresh` over every source, plus a
+   corpus review that read pages rather than counts; 9 new tests (184 total).
+
+   Reconciliation first, since a corpus is only as good as its coverage: **0 URLs in
+   scope were unfetched**, and 0 archived URLs had fallen out of scope. The gap ran the
+   other way — the *committed dumps were stale*. The live sitemap advertised 23 pages
+   they lacked, 6 of which had never been fetched at all. `worklist --refresh-dumps`
+   now merges live sitemaps into the dumps, and offline scope again matches live exactly
+   (**6,404**).
+
+   That command is deliberately additive, which the first version was not: replacing the
+   Databricks dump with what its seed advertises cut it from 37,689 URLs to 5,835,
+   because the seed is `/aws/en/sitemap.xml` while the dump covers every locale and cloud
+   — including the whole `/api/**` tree phase 2 depends on. It was caught immediately
+   (the file is committed), but it is a good reminder that "refresh" must never mean
+   "replace" for an artifact that is a superset of its source.
+
+   Reading the corpus found two more extraction defects, both invisible in every summary:
+
+   | Found by reading | Effect |
+   |---|---|
+   | Docusaurus wraps the page `<h1>` in a `<header>` **inside** the content root | the generic "strip every `<header>`" rule deleted the title from the body of all 5,735 Databricks pages |
+   | `passthrough_md` never touched links | 149 site-rooted links across 24 Anthropic pages resolved nowhere off-site — the same defect fixed for HTML in step 5, still open for Markdown |
+
+   The `<h1>` one is the more interesting: nothing failed, because the title was still in
+   the frontmatter. Every document simply began mid-sentence, which no count would ever
+   show. Anthropic's `.md` twins have the opposite habit — the title lives *only* in
+   frontmatter — so `passthrough_md` now opens each document with its own title, unless
+   the body already names itself (265 API-reference pages open with `## <title>`, and
+   stating it twice would be worse than not stating it once).
+
+   Two non-defects, confirmed by reading rather than assumed: the six pages containing
+   raw `<div>` markup are documentation *about* HTML, and `[string]()` in the API
+   reference is an unlinked type name, not a broken link. Both were left exactly as
+   served.
+
+   Scale is the other thing reading revealed. Five pages hold ~16 MB — 20% of the whole
+   corpus — led by `/docs/en/api/compliance` at **4.77 MB**, which is what the site
+   genuinely serves (the raw `.md` is 4,771,506 bytes). Nothing is wrong with it, but a
+   document three thousand times the median matters to anything that chunks or embeds,
+   so the index now records `body_chars` and every run summary names its largest pages.
+
+   Operationally: both SQLite databases now open in WAL mode. Extraction reads
+   `fetch.db` while a two-hour fetch writes it, and with the default rollback journal a
+   writer can lock a reader out of the file mid-pass.
 8. **`nextjs_article`** for the cookbook, using raw files already on disk.
 9. **Optional: enrichment** — 50-page sample across models, then a Batch run.
 10. **Optional: tier 2 browser** — unlocks `docs.databricks.com/api/**` (3,526 pages) and

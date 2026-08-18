@@ -17,6 +17,7 @@ import re
 from ..category import category_for
 from .base import Extracted, RawPayload, collapse_blank_lines, parse_date
 from .html import (
+    STRIP_SELECTORS,
     absolutise_urls,
     first_text,
     meta_content,
@@ -27,9 +28,14 @@ from .html import (
 )
 
 NAME = "docusaurus"
-VERSION = "4"   # v2 admonition labels; v3 code newlines; v4 absolute links, no base64
+VERSION = "5"   # v2 admonition labels; v3 code newlines; v4 absolute links; v5 keep the h1
 
 CONTENT_SELECTORS = (".theme-doc-markdown", "article", "main")
+
+# Docusaurus wraps the page's `<h1>` in a `<header>` *inside* `.theme-doc-markdown`, so
+# the generic "strip every header" rule deleted the title from the body of every page.
+# The site chrome is outside the content root, so nothing here needs that rule.
+CONTENT_STRIP_SELECTORS = tuple(s for s in STRIP_SELECTORS if s != "header")
 
 # og:title carries the site name: "What is Delta Lake in Databricks? | Databricks on AWS".
 _TITLE_SUFFIX = re.compile(r"\s*\|\s*Databricks(?:\s+on\s+\w+)?\s*$", re.IGNORECASE)
@@ -62,7 +68,7 @@ def extract(payload: RawPayload) -> Extracted:
         # Order matters: promote admonitions to blockquotes *before* stripping chrome,
         # since the stripper removes the buttons and hash-links inside them.
         promote_admonitions(content)
-        strip_chrome(content)
+        strip_chrome(content, CONTENT_STRIP_SELECTORS)
         absolutise_urls(content, canonical)
         markdown = collapse_blank_lines(to_markdown(content))
 

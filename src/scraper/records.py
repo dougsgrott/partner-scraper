@@ -52,6 +52,9 @@ class Extracted(BaseModel):
     code_languages: list[str] = Field(default_factory=list)
     extractor: str = "unknown"
     extractor_version: str = "0"
+    # sha256 of the archived bytes this was parsed from — provenance, written to the
+    # file's frontmatter so the corpus can be re-indexed without `fetch.db`.
+    raw_sha256: str | None = None
 
     @property
     def body_chars(self) -> int:

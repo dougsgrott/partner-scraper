@@ -37,6 +37,13 @@ def path_for(record: Extracted, base_dir: Path | None = None) -> Path:
 
 
 def _safe(segment: str) -> str:
-    """Category labels come from URLs, so keep them to one path segment."""
-    cleaned = segment.strip().strip("/").replace("/", "-")
-    return cleaned or "other"
+    """Category labels come from URLs, so keep them to one safe path segment.
+
+    A URL path segment can be anything the site publishes, including `..` — which would
+    otherwise walk the corpus root. `fetch/rawstore.py` guards its own paths the same
+    way, and for the same reason.
+    """
+    cleaned = segment.strip().strip("/").replace("/", "-").replace("\\", "-")
+    if set(cleaned) <= {"."}:                     # "", ".", ".." — no usable name
+        return "other"
+    return cleaned

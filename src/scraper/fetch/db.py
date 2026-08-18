@@ -15,11 +15,12 @@ comparing `raw_sha256` after re-fetching (PLAN.md §8).
 
 from __future__ import annotations
 
-import sqlite3
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Self
+
+from ..db import connect
 
 DEFAULT_DB_PATH = Path("state/fetch.db")
 
@@ -68,8 +69,7 @@ class FetchDB:
     def __init__(self, db_path: str | Path = DEFAULT_DB_PATH):
         self.path = Path(db_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.path)
-        self.conn.row_factory = sqlite3.Row
+        self.conn = connect(self.path)
         self.conn.executescript(_SCHEMA)
         self.conn.commit()
 

@@ -49,12 +49,17 @@ class ExtractSummary:
     candidates: int = 0
     skipped_unchanged: int = 0
     written: int = 0
+    unchanged_files: int = 0
+    moved: int = 0
+    pruned: int = 0
     duplicates: int = 0
     quality_failed: int = 0
     errors: int = 0
     missing_raw: int = 0
     elapsed_s: float = 0.0
     categories: dict[str, int] = field(default_factory=dict)
+    corpus_chars: int = 0
+    largest: list[dict] = field(default_factory=list)
     issue_counts: dict[str, int] = field(default_factory=dict)
     samples: list[dict] = field(default_factory=list)
 
@@ -72,7 +77,10 @@ class ExtractSummary:
             *[f"  deferred         {sid} ({why})" for sid, why in self.deferred_sources.items()],
             f"  candidates       {self.candidates}  (skipped {self.skipped_unchanged} unchanged)",
             f"  written          {self.written}"
+            + (f"   ({self.unchanged_files} byte-identical)" if self.unchanged_files else "")
             + (f"   ({self.duplicates} duplicate URLs merged)" if self.duplicates else ""),
+            *([f"  moved            {self.moved}  (stale copies removed)"] if self.moved else []),
+            *([f"  pruned           {self.pruned}  (orphaned files removed)"] if self.pruned else []),
             f"  quality failed   {self.quality_failed}",
             f"  extract errors   {self.errors}",
             f"  missing raw      {self.missing_raw}",
@@ -82,6 +90,10 @@ class ExtractSummary:
             lines.append("  issues:")
             for issue, n in sorted(self.issue_counts.items(), key=lambda kv: -kv[1])[:10]:
                 lines.append(f"    {n:>5}  {issue}")
+        if self.corpus_chars:
+            lines.append(f"  written chars    {self.corpus_chars:,}")
+        for page in self.largest[:3]:
+            lines.append(f"    largest        {page['body_chars']:>9,}  {page['url']}")
         if self.categories:
             top = sorted(self.categories.items(), key=lambda kv: -kv[1])[:8]
             lines.append("  top categories:  " + ", ".join(f"{k} ({v})" for k, v in top))
@@ -106,6 +118,7 @@ def run_extract(
     force: bool = False,
     only_failed: bool = False,
     limit: int | None = None,
+    prune: bool = False,
     fetch_db_path: Path | None = None,
     index_db_path: Path | None = None,
     data_dir: Path | None = None,
@@ -196,31 +209,70 @@ def run_extract(
                     _sample(summary, url, str(quality))
                     continue
 
+                record = record.model_copy(update={"raw_sha256": row["raw_sha256"]})
                 path = writer.path_for_record(record, data_dir)
                 # In-run map catches duplicates in a full pass; the index catches them
                 # across incremental runs, where the first URL was written long ago.
+                previous = index.get(url)
                 first_url = written_paths.get(str(path)) or index.owner_of(path)
                 if first_url is not None and first_url != url:
                     summary.duplicates += 1
                     index.record_duplicate(url, src.company, file_path=path,
                                            duplicate_of=first_url, source_id=sid,
-                                           extractor_version=version)
+                                           extractor_version=version,
+                                           raw_sha256=row["raw_sha256"])
+                    # It may have owned a file of its own before it became a duplicate.
+                    _drop_stale_copy(previous, path, url, index, data_dir, summary)
                     logger.info("%s duplicates %s — one corpus file kept", url, first_url)
                     continue
                 written_paths[str(path)] = url
 
-                path = writer.write(record, data_dir)
+                result = writer.write(record, data_dir)
                 index.upsert(
                     record,
-                    path,
+                    result.path,
                     content_hash=writer.content_hash(record.markdown),
                     raw_sha256=row["raw_sha256"],
+                    extracted_at=result.extracted_at,
                 )
+                _drop_stale_copy(previous, result.path, url, index, data_dir, summary)
                 summary.written += 1
+                summary.unchanged_files += 0 if result.changed else 1
+                summary.corpus_chars += record.body_chars
                 summary.categories[record.category] = summary.categories.get(record.category, 0) + 1
+
+        summary.largest = index.largest()
+
+        if prune:
+            for orphan in index.orphans(data_dir or "data"):
+                writer.remove(orphan, data_dir)
+                summary.pruned += 1
+                logger.info("pruned orphaned corpus file %s", orphan)
 
     summary.elapsed_s = time.monotonic() - started
     return summary
+
+
+def _drop_stale_copy(previous: dict | None, path: Path, url: str, index: Index,
+                     data_dir: Path | None, summary: ExtractSummary) -> None:
+    """Remove the file this page used to occupy, if it moved.
+
+    A page moves when its `updated_date` rolls into a new month bucket or a revised
+    extractor puts it in another category. Without this the old copy stays in `data/`
+    forever, unreferenced by the index and indistinguishable from a live page to anything
+    that reads the corpus off disk.
+    """
+    if not previous or previous["status"] != "ok" or not previous["file_path"]:
+        return
+    stale = Path(previous["file_path"])
+    if stale == path or not stale.exists():
+        return
+    # Only if nothing else has since claimed it — two URLs can trade paths within a run.
+    if index.owner_of(stale) is not None:
+        return
+    writer.remove(stale, data_dir)
+    summary.moved += 1
+    logger.info("%s moved to %s — removed stale %s", url, path, stale)
 
 
 def _sample(summary: ExtractSummary, url: str, reason: str) -> None:
