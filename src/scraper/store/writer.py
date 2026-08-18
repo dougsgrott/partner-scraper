@@ -1,73 +1,94 @@
-"""Write a PageRecord as a Markdown file: YAML frontmatter (metadata) + body.
+"""Write an `Extracted` page as Markdown: YAML frontmatter + body. See PLAN.md §7.
 
-The metadata is *about* the body, never a replacement for it (PLAN.md §6). One file per
-page; writes are idempotent. Frontmatter round-trips via `parse` so the SQLite index can
-be rebuilt from the files alone.
+One file per page. The frontmatter is what you query and organise by; the body is what you
+read. Writes are idempotent — the same page always lands at the same path with the same
+bytes — and `parse` round-trips the frontmatter so the index can be rebuilt from the
+files alone.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
 
-from ..schema import PageRecord
+from ..records import Extracted
 
 
 def content_hash(markdown: str) -> str:
-    """sha256 of the body — the change-detection key used for dedup."""
+    """sha256 of the body — drives change detection for the corpus (PLAN.md §8)."""
     return hashlib.sha256(markdown.encode("utf-8")).hexdigest()
 
 
-def build_frontmatter(record: PageRecord, url: str, fetched_at: datetime) -> dict:
+def build_frontmatter(record: Extracted, extracted_at: datetime) -> dict:
     """The ordered metadata block written above the body.
 
-    Dates are stored as native date objects so YAML emits them unquoted (2026-02-11)
-    and they round-trip back to date on parse.
+    Dates stay as `date` objects so YAML emits them unquoted and they round-trip.
     """
-    return {
+    front = {
         "title": record.title,
         "company": record.company,
-        "theme": record.theme,
-        "content_type": record.content_type,
+        "source_id": record.source_id,
+        "category": record.category,
+        "description": record.description,
         "published_date": record.published_date,
         "updated_date": record.updated_date,
-        "summary": record.summary,
-        "source_url": url,
-        "key_entities": list(record.key_entities),
+        "source_url": record.source_url,
+        "canonical_url": record.canonical_url,
+        "breadcrumbs": list(record.breadcrumbs),
+        "code_languages": list(record.code_languages),
+        "extractor": f"{record.extractor}@{record.extractor_version}",
         "content_hash": content_hash(record.markdown),
-        "fetched_at": fetched_at.isoformat(),
+        "extracted_at": extracted_at.isoformat(timespec="seconds"),
     }
+    return {k: v for k, v in front.items() if v not in (None, [], "")}
 
 
-def render(record: PageRecord, url: str, fetched_at: datetime) -> str:
-    """Serialize to the frontmatter + body text form."""
-    fm = build_frontmatter(record, url, fetched_at)
-    front = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True)
-    return f"---\n{front}---\n\n{record.markdown.rstrip()}\n"
+def render(record: Extracted, extracted_at: datetime | None = None) -> str:
+    extracted_at = extracted_at or datetime.now(UTC)
+    front = yaml.safe_dump(
+        build_frontmatter(record, extracted_at),
+        sort_keys=False,
+        allow_unicode=True,
+        width=100,
+    )
+    return f"---\n{front}---\n\n{record.markdown.strip()}\n"
+
+
+def path_for_record(record: Extracted, base_dir: Path | None = None) -> Path:
+    """Where this record *would* be written — used to spot two URLs claiming one file."""
+    from . import layout
+
+    return layout.path_for(record, base_dir)
 
 
 def write(
-    record: PageRecord,
-    url: str,
+    record: Extracted,
     base_dir: Path | None = None,
     *,
-    fetched_at: datetime | None = None,
+    extracted_at: datetime | None = None,
 ) -> Path:
-    """Write the page to its computed path. Returns the path written."""
-    from . import layout  # local import avoids a module-load cycle
+    """Write the page to its computed path, atomically. Returns the path written."""
+    from . import layout
 
-    fetched_at = fetched_at or datetime.now(UTC)
-    path = layout.path_for(record, url, base_dir or layout.DEFAULT_DATA_DIR)
+    path = layout.path_for(record, base_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render(record, url, fetched_at), encoding="utf-8")
+
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(render(record, extracted_at), encoding="utf-8")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return path
 
 
-def parse(path: Path) -> tuple[dict, str]:
-    """Split a stored file into (frontmatter dict, body). Returns ({}, text) if no front."""
+def parse(path: str | Path) -> tuple[dict, str]:
+    """Split a stored file into `(frontmatter, body)`. Returns `({}, text)` if absent."""
     text = Path(path).read_text(encoding="utf-8")
     if text.startswith("---\n"):
         parts = text.split("---\n", 2)

@@ -155,12 +155,15 @@ claude-scraper/
 │   │   ├── runner.py             # ✅ step 3 — job selection, run loop, run summary
 │   │   ├── markdown_endpoint.py  # ✅ step 4 — tier 0: URL → URL.md, with escalation
 │   │   └── browser.py            # tier 2: patchright persistent context
+│   ├── records.py                # ✅ step 5 — Extracted / RawPayload (shared contract)
+│   ├── category.py               # ✅ step 5 — URL path → category
 │   ├── extract/
-│   │   ├── registry.py           # source_id → extractor
-│   │   ├── base.py               # Extracted model + quality gate
-│   │   ├── passthrough_md.py     # anthropic /docs/en/ (frontmatter + body)
-│   │   ├── docusaurus.py         # databricks /aws/en/
-│   │   ├── nextjs_article.py     # anthropic /cookbook/
+│   │   ├── base.py               # ✅ step 5 — quality gate + date/whitespace helpers
+│   │   ├── html.py               # ✅ step 5 — comment strip, code text, converter
+│   │   ├── passthrough_md.py     # ✅ step 5 — anthropic /docs/en/ (frontmatter + body)
+│   │   ├── docusaurus.py         # ✅ step 5 — databricks /aws/en/
+│   │   ├── registry.py           # ✅ step 5 — extractor name → function
+│   │   ├── nextjs_article.py     # anthropic /cookbook/ (step 8)
 │   │   └── generic.py            # trafilatura fallback for new sites
 │   ├── enrich/                   # optional LLM pass (§7)
 │   ├── store/                    # layout.py, writer.py, index.py (from v1)
@@ -350,11 +353,13 @@ Every extraction is scored before it is written; failures are recorded in the in
 `extract_error` with the reason, and the raw file stays on disk for a retry after the
 extractor is fixed.
 
-- body ≥ 200 characters of visible text (this alone catches the SPA-shell case: 31 chars),
+- body ≥ 100 characters of visible text (this alone catches the SPA-shell case: 31 chars;
+  the floor sits below the shortest genuine reference stub, ~120),
 - a title exists and is not the site-wide default,
-- no 404/"page not found"/challenge markers,
+- no 404/"page not found"/challenge marker **in the title** — matching the body rejected
+  real pages that document those errors,
 - text-to-markup ratio within a sane band,
-- balanced code fences.
+- code fences balanced by CommonMark rules (a longer fence may enclose a shorter one).
 
 ### 7.3 Category is deterministic; theme is not needed
 
@@ -409,6 +414,13 @@ Sitemap `lastmod` is unusable (§2e), so the ladder is:
    nonces, CSP hashes — all present in the probes) does not produce diff noise.
 4. **Extractor version.** Each extractor carries a version string; bumping it forces
    re-extraction of every page it owns, from `raw/`, with no network access at all.
+   Exercised three times in step 5 (docusaurus v1→v4): each pass re-extracted 5,727 pages
+   in ~8 minutes and cost nothing.
+
+A fifth case turned up in practice: two sitemap URLs naming **one** document
+(`/ldp/best-practices` and `/ldp/best-practices/`, or a redirect pair — §2a). The archive
+keeps them separate on purpose; the corpus records the second as `status: duplicate`
+pointing at the first's file, so the manifest never claims more documents than exist.
 
 A refresh run is therefore: revalidate → fetch the changed minority → re-extract only
 what actually changed → optionally enrich only the new/changed rows.
@@ -515,9 +527,30 @@ Each step ends with something runnable and verifiable.
    non-Markdown `2xx` falls back. A timeout or `5xx` is reported as a tier-0 failure and
    retried next run — escalating there would permanently downgrade a page to HTML because
    of one bad minute on the server.
-5. **Extractors** — `passthrough_md` and `docusaurus` + quality gate. Run over the ~100
-   raw files from steps 3–4 and **read 10 outputs by hand**. This is the step where
-   quality is actually decided; do not skim it.
+5. **Extractors** — ✅ done. `extract/` (`base`, `html`, `passthrough_md`, `docusaurus`,
+   `registry`) plus the store refactor from `PageRecord` to `Extracted`; 27 new tests
+   (146 total). Behind `scripts/extract.py`.
+
+   **6,301 pages extracted, 1 quality failure, 0 errors, 77.4 MiB corpus** — and, as the
+   step warned, reading the output is what decided quality. Five defects were invisible in
+   the summary and obvious on the page:
+
+   | Found by reading | Effect |
+   |---|---|
+   | React hydration comments split text nodes | every title and paragraph ran words together (`"What isDelta LakeinDatabricks?"`) |
+   | Docusaurus code lines are `<span>`s with no newline | **every multi-line code example** collapsed to one line |
+   | `data:` image URIs inlined verbatim | 11 MiB — **13% of the corpus** — of base64 across 28% of files |
+   | Links left relative | 95,560 links resolving nowhere outside the site |
+   | Category taken from the `.md` fetch URL | corpus directories named `get-started.md` |
+
+   The quality gate itself needed two corrections, both from false positives on real
+   pages: error markers must match the **title**, not the body (a page documenting
+   `404 Not Found` is not a 404), and fence balance needs CommonMark rules, not a `%2`
+   count (a block quoting Markdown legitimately opens with ` ```` `).
+
+   Every fix was a local re-run over `raw/` — **zero refetches**. Bumping
+   `docusaurus.VERSION` re-extracted its 5,727 pages and left the 571 Anthropic ones
+   alone, which is §8's extractor-version rung working end to end.
 6. **Corpus writer + index** — wire `store/` in, confirm idempotent paths and hashes.
 7. **Full phase-1 run** — 6,381 pages. Review the run summary, then the quality-gate
    failures, then fix extractors and re-run `extract --force` (no refetch).

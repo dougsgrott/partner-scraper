@@ -1,53 +1,63 @@
-"""SQLite manifest over the corpus: dedup, incremental gating, and querying.
+"""`state/index.db` — the corpus manifest. See PLAN.md §7, §8.
 
-The index is a denormalized copy of each file's frontmatter plus a content hash and the
-sitemap lastmod. The Markdown files are the source of truth — the index can be rebuilt
-from them at any time (``rebuild``). See PLAN.md §5.3.
+A denormalised copy of each file's frontmatter, so the whole corpus is queryable without
+opening 6,000 files. **The Markdown files are the source of truth**; this index is
+rebuildable from them at any time (`rebuild`), and the files themselves are rebuildable
+from `raw/` with no network. Losing it costs seconds.
 
-Deviation from the PLAN.md sketch (documented on purpose):
-  * added `lastmod` — the sitemap lastmod at last ingest, so the pre-fetch dedup hint
-    compares like-for-like instead of against Claude-extracted dates.
-  * added `error` and relaxed some NOT NULLs — so fetch/parse failures can be recorded
-    as rows (status = fetch_error | parse_error) alongside successful pages.
+Distinct from `state/fetch.db`, which tracks acquisition. This one answers "what is in the
+corpus?"; that one answers "what did we ask for and what came back?".
 """
 
 from __future__ import annotations
 
+import logging
 import sqlite3
+from collections import Counter
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Self
 
-from ..schema import PageRecord
+from ..records import Extracted
 from . import writer
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path("state/index.db")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS pages (
-    url            TEXT PRIMARY KEY,
-    company        TEXT NOT NULL,
-    theme          TEXT,
-    content_type   TEXT,
-    title          TEXT,
-    summary        TEXT,
-    published_date TEXT,
-    updated_date   TEXT,
-    lastmod        TEXT,
-    content_hash   TEXT,
-    file_path      TEXT,
-    fetched_at     TEXT NOT NULL,
-    status         TEXT NOT NULL,
-    error          TEXT,
-    attempts       INTEGER NOT NULL DEFAULT 0
+    url               TEXT PRIMARY KEY,
+    company           TEXT NOT NULL,
+    source_id         TEXT,
+    category          TEXT,
+    title             TEXT,
+    description       TEXT,
+    published_date    TEXT,
+    updated_date      TEXT,
+    content_hash      TEXT,
+    raw_sha256        TEXT,
+    file_path         TEXT,
+    extractor         TEXT,
+    extractor_version TEXT,
+    extracted_at      TEXT NOT NULL,
+    status            TEXT NOT NULL,
+    error             TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_pages_company  ON pages(company);
+CREATE INDEX IF NOT EXISTS idx_pages_category ON pages(category);
+CREATE INDEX IF NOT EXISTS idx_pages_status   ON pages(status);
 """
 
 _COLUMNS = [
-    "url", "company", "theme", "content_type", "title", "summary",
-    "published_date", "updated_date", "lastmod", "content_hash",
-    "file_path", "fetched_at", "status", "error", "attempts",
+    "url", "company", "source_id", "category", "title", "description",
+    "published_date", "updated_date", "content_hash", "raw_sha256", "file_path",
+    "extractor", "extractor_version", "extracted_at", "status", "error",
 ]
+
+# "duplicate" — a second URL naming a document another URL already produced
+# (`/x` and `/x/`, or a redirect). Settled, not failed: there is nothing to fix.
+STATUSES = ("ok", "duplicate", "extract_error", "quality_failed")
 
 
 def _iso(value: date | None) -> str | None:
@@ -55,23 +65,29 @@ def _iso(value: date | None) -> str | None:
 
 
 class Index:
-    """Thin wrapper over a SQLite `pages` table."""
+    """Thin wrapper over the `pages` table."""
 
     def __init__(self, db_path: str | Path = DEFAULT_DB_PATH):
         self.path = Path(db_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute(_SCHEMA)
         self._migrate()
+        self.conn.executescript(_SCHEMA)
         self.conn.commit()
 
     def _migrate(self) -> None:
-        """Additive migrations for pre-existing DBs (CREATE TABLE IF NOT EXISTS is a no-op
-        once the table exists, so new columns must be added explicitly)."""
+        """Replace a v1 index outright rather than migrating it.
+
+        The old table keyed on a model-assigned `theme` and its rows point at files the
+        retired pipeline wrote. Since the index is rebuildable from `data/` by design,
+        dropping it is cheaper and safer than reconciling two schemas.
+        """
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(pages)")}
-        if "attempts" not in cols:
-            self.conn.execute("ALTER TABLE pages ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+        if cols and "theme" in cols:
+            logger.warning("replacing the v1 index schema (theme → category); rebuildable from data/")
+            self.conn.execute("DROP TABLE pages")
+            self.conn.commit()
 
     # -- context manager -------------------------------------------------
     def __enter__(self) -> Self:
@@ -84,16 +100,8 @@ class Index:
         self.conn.close()
 
     # -- writes ----------------------------------------------------------
-    def _next_attempts(self, url: str) -> int:
-        """One more than the stored attempt count (0 if the URL is new)."""
-        row = self.get(url)
-        prev = row["attempts"] if row and row["attempts"] is not None else 0
-        return prev + 1
-
     def _upsert(self, row: dict) -> None:
         row = {col: row.get(col) for col in _COLUMNS}
-        if row["attempts"] is None:  # NOT NULL column; rebuild() doesn't set it
-            row["attempts"] = 0
         placeholders = ", ".join(f":{c}" for c in _COLUMNS)
         updates = ", ".join(f"{c}=excluded.{c}" for c in _COLUMNS if c != "url")
         self.conn.execute(
@@ -105,117 +113,103 @@ class Index:
 
     def upsert(
         self,
-        url: str,
-        record: PageRecord,
+        record: Extracted,
         file_path: str | Path,
-        content_hash: str,
         *,
-        lastmod: date | None = None,
-        fetched_at: datetime | None = None,
+        content_hash: str,
+        raw_sha256: str | None = None,
+        extracted_at: datetime | None = None,
     ) -> None:
-        """Record a successfully-ingested page."""
-        fetched_at = fetched_at or datetime.now(UTC)
         self._upsert({
-            "url": url,
+            "url": record.source_url,
             "company": record.company,
-            "theme": record.theme,
-            "content_type": record.content_type,
+            "source_id": record.source_id,
+            "category": record.category,
             "title": record.title,
-            "summary": record.summary,
+            "description": record.description,
             "published_date": _iso(record.published_date),
             "updated_date": _iso(record.updated_date),
-            "lastmod": _iso(lastmod),
             "content_hash": content_hash,
+            "raw_sha256": raw_sha256,
             "file_path": str(file_path),
-            "fetched_at": fetched_at.isoformat(),
+            "extractor": record.extractor,
+            "extractor_version": record.extractor_version,
+            "extracted_at": (extracted_at or datetime.now(UTC)).isoformat(timespec="seconds"),
             "status": "ok",
             "error": None,
-            "attempts": self._next_attempts(url),
         })
 
-    def record_error(
-        self,
-        url: str,
-        company: str,
-        status: str,
-        error: str,
-        *,
-        lastmod: date | None = None,
-        fetched_at: datetime | None = None,
-    ) -> None:
-        """Record a fetch_error / parse_error so the run has an auditable trail."""
-        fetched_at = fetched_at or datetime.now(UTC)
+    def owner_of(self, file_path: str | Path) -> str | None:
+        """The URL that produced a corpus file, if any — the durable duplicate check."""
+        row = self.conn.execute(
+            "SELECT url FROM pages WHERE file_path = ? AND status = 'ok' LIMIT 1",
+            (str(file_path),),
+        ).fetchone()
+        return row["url"] if row else None
+
+    def record_duplicate(self, url: str, company: str, *, file_path: str | Path,
+                         duplicate_of: str, source_id: str | None = None,
+                         extractor_version: str | None = None) -> None:
+        """Record that this URL names a document already in the corpus."""
         self._upsert({
             "url": url,
             "company": company,
-            "lastmod": _iso(lastmod),
-            "fetched_at": fetched_at.isoformat(),
+            "source_id": source_id,
+            "file_path": str(file_path),
+            "extractor_version": extractor_version,
+            "extracted_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "status": "duplicate",
+            "error": f"same document as {duplicate_of}",
+        })
+
+    def record_failure(self, url: str, company: str, *, status: str, error: str,
+                       source_id: str | None = None) -> None:
+        """Record an extraction or quality failure, keeping it visible in the manifest."""
+        self._upsert({
+            "url": url,
+            "company": company,
+            "source_id": source_id,
+            "extracted_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "status": status,
             "error": error,
-            "attempts": self._next_attempts(url),
         })
 
     # -- reads -----------------------------------------------------------
     def get(self, url: str) -> dict | None:
-        cur = self.conn.execute("SELECT * FROM pages WHERE url = ?", (url,))
-        row = cur.fetchone()
+        row = self.conn.execute("SELECT * FROM pages WHERE url = ?", (url,)).fetchone()
         return dict(row) if row else None
 
-    def needs_refresh(
-        self,
-        url: str,
-        lastmod: date | None = None,
-        new_hash: str | None = None,
-    ) -> bool:
-        """Decide whether a URL should be (re)ingested.
+    def needs_extract(self, url: str, *, raw_sha256: str | None = None,
+                      extractor_version: str | None = None) -> bool:
+        """Whether a page should be (re-)extracted.
 
-        * unknown URL -> True (never seen)
-        * new_hash given (post-fetch) -> True iff it differs from the stored hash
-        * else lastmod given (pre-fetch hint) -> True iff sitemap lastmod is newer than
-          what we stored at last ingest
-        * otherwise (seen, no newer signal) -> False
+        Re-extract when it is new or previously failed, when the archived bytes changed
+        (a refetch found new content), or when the extractor itself was revised. That
+        last case is what makes fixing a parser a local re-run over `raw/` — PLAN.md §8.
         """
         row = self.get(url)
-        if row is None:
+        if row is None or row["status"] not in ("ok", "duplicate"):
             return True
-        if new_hash is not None:
-            return new_hash != row["content_hash"]
-        if lastmod is not None and row["lastmod"]:
-            return lastmod.isoformat() > row["lastmod"]
-        return False
-
-    def should_ingest(self, url: str, lastmod: date | None, max_attempts: int) -> bool:
-        """Work-selection gate for the batch runner.
-
-        * never seen -> True
-        * last ingest ok -> True only if the page changed (needs_refresh)
-        * last attempt errored -> True while attempts remain under the cap
-          (needs_refresh alone would skip error rows forever)
-        """
-        row = self.get(url)
-        if row is None:
+        if extractor_version is not None and row["extractor_version"] != extractor_version:
             return True
-        if row["status"] == "ok":
-            return self.needs_refresh(url, lastmod)
-        return (row["attempts"] or 0) < max_attempts
+        return raw_sha256 is not None and row["raw_sha256"] != raw_sha256
 
     def query(
         self,
         *,
         company: str | None = None,
-        theme: str | None = None,
-        content_type: str | None = None,
+        category: str | None = None,
+        source_id: str | None = None,
         status: str | None = None,
         updated_after: date | None = None,
         updated_before: date | None = None,
     ) -> list[dict]:
-        """Filtered query over the manifest. ISO date strings compare lexically."""
         clauses: list[str] = []
         params: list[object] = []
         for col, val in (
             ("company", company),
-            ("theme", theme),
-            ("content_type", content_type),
+            ("category", category),
+            ("source_id", source_id),
             ("status", status),
         ):
             if val is not None:
@@ -232,28 +226,37 @@ class Index:
         cur = self.conn.execute(f"SELECT * FROM pages{where} ORDER BY url", params)
         return [dict(r) for r in cur.fetchall()]
 
+    def counts(self) -> dict[str, int]:
+        counts = Counter({status: 0 for status in STATUSES})
+        for row in self.conn.execute("SELECT status, COUNT(*) AS n FROM pages GROUP BY status"):
+            counts[row["status"]] = row["n"]
+        return dict(counts)
+
     # -- maintenance -----------------------------------------------------
     def rebuild(self, data_dir: str | Path = "data") -> int:
         """Repopulate the index from the Markdown files. Returns rows written."""
         self.conn.execute("DELETE FROM pages")
         count = 0
         for md in sorted(Path(data_dir).rglob("*.md")):
-            fm, _ = writer.parse(md)
-            if not fm.get("source_url"):
+            front, _ = writer.parse(md)
+            if not front.get("source_url"):
                 continue
+            extractor, _, version = str(front.get("extractor", "")).partition("@")
             self._upsert({
-                "url": fm["source_url"],
-                "company": fm.get("company"),
-                "theme": fm.get("theme"),
-                "content_type": fm.get("content_type"),
-                "title": fm.get("title"),
-                "summary": fm.get("summary"),
-                "published_date": _date_str(fm.get("published_date")),
-                "updated_date": _date_str(fm.get("updated_date")),
-                "lastmod": None,  # not persisted in frontmatter; re-learned on next run
-                "content_hash": fm.get("content_hash"),
+                "url": front["source_url"],
+                "company": front.get("company"),
+                "source_id": front.get("source_id"),
+                "category": front.get("category"),
+                "title": front.get("title"),
+                "description": front.get("description"),
+                "published_date": _date_str(front.get("published_date")),
+                "updated_date": _date_str(front.get("updated_date")),
+                "content_hash": front.get("content_hash"),
+                "raw_sha256": front.get("raw_sha256"),
                 "file_path": str(md),
-                "fetched_at": fm.get("fetched_at") or datetime.now(UTC).isoformat(),
+                "extractor": extractor or None,
+                "extractor_version": version or None,
+                "extracted_at": front.get("extracted_at") or datetime.now(UTC).isoformat(),
                 "status": "ok",
                 "error": None,
             })
@@ -263,9 +266,6 @@ class Index:
 
 
 def _date_str(value) -> str | None:
-    """Frontmatter dates load as date objects (yaml) or strings; normalize to ISO str."""
     if value is None:
         return None
-    if isinstance(value, date):
-        return value.isoformat()
-    return str(value)
+    return value.isoformat() if isinstance(value, date) else str(value)
