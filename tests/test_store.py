@@ -73,8 +73,24 @@ def test_frontmatter_round_trips(data_dir):
     assert front["updated_date"] == date(2026, 7, 10)      # a date, not a quoted string
     assert front["breadcrumbs"] == ["Tables", "Delta"]
     assert front["extractor"] == "docusaurus@4"
-    assert front["raw_sha256"] == "abc123"
     assert body.strip() == rec.markdown.strip()
+
+
+def test_provenance_hash_stays_out_of_the_file(data_dir):
+    """REGRESSION: a static site's rebuild changes every page's bytes without changing a
+    word of content. With `raw_sha256` in the frontmatter that rewrote all 5,743
+    Databricks files for a one-line hash change — the diff noise §8 rung 3 rules out."""
+    front, _ = writer.parse(writer.write(record(), data_dir).path)
+    assert "raw_sha256" not in front
+    assert "content_hash" in front, "the body still identifies itself"
+
+
+def test_only_the_archived_bytes_changing_does_not_touch_the_file(data_dir):
+    first = writer.write(record(raw_sha256="aaa"), data_dir)
+    before = first.path.read_bytes(), first.path.stat().st_mtime_ns
+    second = writer.write(record(raw_sha256="bbb"), data_dir)
+    assert second.changed is False
+    assert (second.path.read_bytes(), second.path.stat().st_mtime_ns) == before
 
 
 def test_empty_fields_are_omitted(data_dir):
@@ -163,6 +179,22 @@ def test_needs_extract_covers_new_changed_and_revised(index, data_dir):
     assert index.needs_extract(url, raw_sha256="abc123", extractor_version="5") is True
 
 
+def test_an_edited_extractor_or_writer_forces_re_extraction(index, data_dir):
+    """REGRESSION: `VERSION` is set by hand, and an edit without a bump left stale files.
+
+    Caught twice in step 8 — first when the cookbook extractor changed, then when the
+    *frontmatter* changed, which no extractor version could have covered. The stored
+    fingerprint spans the extractor, the writer, and the layout for that reason.
+    """
+    rec = record()
+    index.upsert(rec, writer.write(rec, data_dir).path, content_hash="h",
+                 raw_sha256="abc123", fingerprint="aaaaaaaaaaaa")
+    assert index.needs_extract(rec.source_url, raw_sha256="abc123", extractor_version="4",
+                               fingerprint="aaaaaaaaaaaa") is False
+    assert index.needs_extract(rec.source_url, raw_sha256="abc123", extractor_version="4",
+                               fingerprint="bbbbbbbbbbbb") is True
+
+
 def test_failures_are_kept_and_retried(index):
     index.record_failure("https://x/a", "databricks", status="quality_failed", error="too short")
     assert index.get("https://x/a")["error"] == "too short"
@@ -191,9 +223,7 @@ def test_orphans_are_files_no_row_claims(index, data_dir):
     assert index.orphans(data_dir) == [stale]
 
 
-def test_rebuild_restores_the_index_from_the_files(index, data_dir):
-    """REGRESSION: `raw_sha256` was not in the frontmatter, so a rebuilt index could not
-    tell whether a page was current and re-extracted the entire corpus."""
+def test_rebuild_restores_everything_the_file_states(index, data_dir):
     rec = record(description="A storage layer.")
     result = writer.write(rec, data_dir)
     index.upsert(rec, result.path, content_hash=writer.content_hash(rec.markdown),
@@ -202,15 +232,38 @@ def test_rebuild_restores_the_index_from_the_files(index, data_dir):
 
     assert index.rebuild(data_dir) == 1
     after = index.get(rec.source_url)
-    assert after == before
+    assert {k: v for k, v in after.items() if k != "raw_sha256"} == \
+           {k: v for k, v in before.items() if k != "raw_sha256"}
 
-    assert index.needs_extract(rec.source_url, raw_sha256="abc123",
-                               extractor_version="4") is False
+
+def test_rebuild_costs_one_free_re_extraction(index, data_dir):
+    """The provenance hash is the one thing a file does not state, so it is re-derived —
+    a pass over `raw/` that writes nothing, since the output is byte-identical."""
+    rec = record()
+    index.upsert(rec, writer.write(rec, data_dir).path, content_hash="h", raw_sha256="abc123")
+    index.rebuild(data_dir)
+    assert index.needs_extract(rec.source_url, raw_sha256="abc123") is True
+    assert writer.write(rec, data_dir).changed is False
 
 
 def test_readers_are_not_locked_out_by_a_writer(index, tmp_path):
     """Extraction reads `fetch.db` while a two-hour fetch writes it, so WAL is required."""
     assert index.conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+def test_fingerprint_covers_the_writer_not_just_the_extractor():
+    from scraper.extract import registry
+    from scraper.store import writer as writer_module
+
+    before = registry.output_fingerprint("docusaurus")
+    original = writer_module.build_frontmatter
+    try:                                   # any change to the file format must show up
+        writer_module.build_frontmatter = lambda *a, **kw: {}
+        assert registry.output_fingerprint("docusaurus") == before, \
+            "the hash reads source, so monkeypatching must not change it"
+    finally:
+        writer_module.build_frontmatter = original
+    assert before and len(before) == 12
 
 
 def test_body_size_is_recorded_and_ranked(index, data_dir):

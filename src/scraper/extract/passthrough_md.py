@@ -25,7 +25,13 @@ from urllib.parse import urljoin
 import yaml
 
 from ..category import category_for
-from .base import Extracted, RawPayload, collapse_blank_lines, parse_date
+from .base import (
+    Extracted,
+    RawPayload,
+    collapse_blank_lines,
+    parse_date,
+    with_title_heading,
+)
 
 NAME = "passthrough_md"
 VERSION = "3"   # v2: category from the page URL; v3: absolute links + a title heading
@@ -67,20 +73,6 @@ def absolutise_links(markdown: str, base_url: str) -> str:
         cursor = block.end()
     out.append(_ROOTED_LINK.sub(fix, markdown[cursor:]))
     return "".join(out)
-
-
-def with_title_heading(markdown: str, title: str) -> str:
-    """Open the document with its own title unless it already does.
-
-    The served `.md` keeps the title in frontmatter only, so the body starts at the first
-    `##`. Every other page in the corpus opens with an `# H1`, and a chunk of a document
-    that never names it is much harder to use downstream.
-    """
-    first = next((line for line in markdown.splitlines() if line.strip()), "")
-    heading = first.lstrip("#").strip() if first.startswith("#") else None
-    if not title or first.startswith("# ") or (heading and heading.casefold() == title.casefold()):
-        return markdown            # already named — never state the title twice
-    return f"# {title}\n\n{markdown.lstrip()}"
 
 
 def extract(payload: RawPayload) -> Extracted:

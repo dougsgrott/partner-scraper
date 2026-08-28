@@ -136,6 +136,24 @@ _DATE_FORMATS = (
 )
 
 
+def with_title_heading(markdown: str, title: str) -> str:
+    """Open the document with its own title unless it already does.
+
+    Sources disagree about where the title lives: Docusaurus puts an `<h1>` in the body,
+    Anthropic's `.md` twins keep it in frontmatter only, and a cookbook notebook may open
+    on a code cell. A corpus is easier to read — and much easier to chunk for retrieval —
+    when every document names itself in its first line.
+
+    Never states the title twice: 265 API-reference pages already open with
+    `## <title>`, and repeating it would be worse than leaving the level alone.
+    """
+    first = next((line for line in markdown.splitlines() if line.strip()), "")
+    heading = first.lstrip("#").strip() if first.startswith("#") else None
+    if not title or first.startswith("# ") or (heading and heading.casefold() == title.casefold()):
+        return markdown
+    return f"# {title}\n\n{markdown.lstrip()}"
+
+
 def parse_date(value: str | None) -> date | None:
     """Parse the date formats the target sites actually publish."""
     if not value:
