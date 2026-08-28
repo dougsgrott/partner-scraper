@@ -26,6 +26,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.6",
+    "trafilatura>=2.2.0",
 ]
 
 [build-system]
