@@ -317,6 +317,14 @@ def test_a_title_is_never_stated_twice():
     assert record.markdown.startswith("## List Tunnels")
 
 
+def test_every_extractor_has_a_fingerprint():
+    from scraper.extract import registry
+
+    prints = {name: registry.output_fingerprint(name) for name in registry.implemented()}
+    assert all(prints.values()), prints
+    assert len(set(prints.values())) == len(prints), "each module must hash to its own value"
+
+
 def test_unknown_extractor_raises():
     with pytest.raises(KeyError):
         extract_payload(payload(b"<html></html>"), "nope")

@@ -4,6 +4,11 @@ Build a local, always-current corpus of partner documentation (Anthropic, Databr
 later Snowflake et al.) by fetching pages ourselves, archiving the raw payload, and
 parsing it into clean Markdown offline.
 
+Defects found, decisions reversed, and the habits that came out of both are recorded
+separately in [docs/lessons-learned.md](docs/lessons-learned.md). Evidence that the
+resulting corpus is complete, faithful, and useful is in
+[docs/validation.md](docs/validation.md).
+
 Supersedes [plan v1](docs/plan-v1-claude-sdk.md), which had Claude fetch and clean each
 page in a single API call. That path is retired: it paid tokens per page for work a
 parser does for free, coupled fetching to model availability and usage limits, and made
@@ -164,7 +169,7 @@ claude-scraper/
 │   │   ├── passthrough_md.py     # ✅ step 5 — anthropic /docs/en/ (frontmatter + body)
 │   │   ├── docusaurus.py         # ✅ step 5 — databricks /aws/en/
 │   │   ├── registry.py           # ✅ step 5 — extractor name → function
-│   │   ├── nextjs_article.py     # anthropic /cookbook/ (step 8)
+│   │   ├── nextjs_article.py     # ✅ step 8 — anthropic /cookbook/ (JSON meta + DOM body)
 │   │   └── generic.py            # trafilatura fallback for new sites
 │   ├── enrich/                   # optional LLM pass (§7)
 │   ├── store/                    # ✅ step 6 — from v1, now idempotent + self-describing
@@ -344,7 +349,11 @@ Per-site extractors, keyed by `source_id`:
   from `class="language-*"`; tables preserved. Metadata from `og:title`,
   `meta[name=description]`, the JSON-LD block, and the visible `Last updated on …` line.
 - **`nextjs_article`** (Anthropic cookbook) — select `<article>`, same conversion path,
-  plus removal of the cookie banner and search shell seen in the probe.
+  but the page states its own metadata in an embedded `application/json` block
+  (title, description, date, authors, topic tags, and the GitHub URL of the source
+  notebook), so none of it has to be scraped from the DOM. Two repairs are needed:
+  code blocks are not `<pre>` elements at all (each line is a `<div>`), and every
+  external link carries a visually-hidden "(opens in new tab)".
 - **`generic`** — `trafilatura` fallback so a new partner site produces something usable
   on day one, before anyone writes a bespoke extractor for it.
 
@@ -394,9 +403,13 @@ new category. The index knows the path the page previously occupied and deletes 
 `extract --prune` sweeps any file no `ok` row claims. Without this the corpus silently
 accumulates stale copies that read exactly like live pages.
 
-The frontmatter also records `raw_sha256`, the archived bytes the file was parsed from.
-That is what makes the corpus self-describing: `index.rebuild()` restores the full
-change-detection state from `data/` alone, with no reference to `fetch.db`.
+What the frontmatter deliberately does **not** record is `raw_sha256`, the hash of the
+archived bytes. Step 6 put it there to make the corpus self-describing; step 7's refresh
+showed the cost — a static site republishes byte-different HTML on every build, so all
+5,743 Databricks files were rewritten for a one-line hash change while their content
+stood still. Provenance lives in the index instead, and the corpus stays quiet unless
+something a reader would notice has changed. A rebuilt index re-derives the hashes in one
+free pass that rewrites nothing.
 
 ### 7.4 Optional enrichment (Stage C)
 
@@ -444,10 +457,22 @@ Sitemap `lastmod` is unusable (§2e), so the ladder is:
    CSP hashes — all present in the probes) produces no diff noise. `content_hash` alone
    would miss a retitled or recategorised page whose body never changed, so the
    comparison covers the whole frontmatter bar `extracted_at` (step 6).
-4. **Extractor version.** Each extractor carries a version string; bumping it forces
-   re-extraction of every page it owns, from `raw/`, with no network access at all.
-   Exercised three times in step 5 (docusaurus v1→v4): each pass re-extracted 5,727 pages
-   in ~8 minutes and cost nothing.
+
+   This rung only works if nothing *upstream-volatile* is in the frontmatter, which is
+   why the archive hash is not (step 8): one hash per file would have re-churned the
+   whole corpus on every site rebuild, which is precisely the noise this rung exists to
+   prevent.
+4. **Extractor version — and its fingerprint.** Each extractor carries a version string;
+   bumping it forces re-extraction of every page it owns, from `raw/`, with no network
+   access at all. Exercised three times in step 5 (docusaurus v1→v4): each pass
+   re-extracted 5,727 pages in ~8 minutes and cost nothing.
+
+   `VERSION` states intent, but it is set by hand — and in step 8 an extractor was
+   edited without bumping it, so every page reported "skipped unchanged" and the corpus
+   silently kept the old output. The index therefore also stores a **fingerprint of the
+   extractor's source**, and a change to either forces re-extraction. A false positive
+   costs CPU and nothing else: since step 6, rewriting an unchanged page leaves the file
+   byte-identical.
 
 A fifth case turned up in practice: two sitemap URLs naming **one** document
 (`/ldp/best-practices` and `/ldp/best-practices/`, or a redirect pair — §2a). The archive
@@ -603,11 +628,11 @@ Each step ends with something runnable and verifiable.
    what the corpus is for. Date buckets already span 2023-10 to 2026-08 across 5,735
    dated pages, so this was not hypothetical.
 
-   Also fixed: `raw_sha256` is now written to the frontmatter, so a rebuilt index knows
-   what each file was parsed from instead of re-extracting all 6,301 pages to find out;
-   `layout._safe` refuses `..` as a category, matching the traversal guard `rawstore` has
-   had since step 2; and a `duplicate` row now stores `raw_sha256` too, without which it
-   never satisfied `needs_extract` and was re-resolved on every incremental run.
+   Also fixed: `layout._safe` refuses `..` as a category, matching the traversal guard
+   `rawstore` has had since step 2; and a `duplicate` row now stores `raw_sha256` too,
+   without which it never satisfied `needs_extract` and was re-resolved on every
+   incremental run. (This step also moved `raw_sha256` *into* the frontmatter, which
+   step 8 moved back out — see there for what the first real refresh showed.)
 
    Verified on the real corpus: the first `--force` pass rewrote all 6,301 files (adding
    `raw_sha256`), and the second reported **6,301 written, 6,301 byte-identical** — not
@@ -662,7 +687,68 @@ Each step ends with something runnable and verifiable.
    Operationally: both SQLite databases now open in WAL mode. Extraction reads
    `fetch.db` while a two-hour fetch writes it, and with the default rollback journal a
    writer can lock a reader out of the file mid-pass.
-8. **`nextjs_article`** for the cookbook, using raw files already on disk.
+
+   **The refresh itself: 6,404 pages, 2h03m at 0.87 req/s, 293.6 MiB, 0 errors — and not
+   one `304`.** The two hosts behaved as the exact opposite of their advertised
+   capabilities:
+
+   | Host | Conditional GET | Outcome |
+   |---|---|---|
+   | `docs.databricks.com` (5,743) | supported, ETags stored | **0 saved** — the rebuild rotated every validator; all `200`, all bytes different |
+   | `platform.claude.com` (661) | none at all (`no-store`) | **661 of 661 byte-identical** — re-downloaded in full, zero downstream work |
+
+   The site that supports revalidation saved nothing; the site that cannot be revalidated
+   had not changed at all. That is §8's ladder earning its rungs — rung 1 contributed
+   nothing this run, and rung 2 is what kept 661 pages out of re-extraction. Note also
+   what the byte churn was *not*: only 33 pages' `updated_date` moved to a new month, and
+   the date buckets stayed spread across 27 months, so the rebuild republished
+   byte-different HTML for pages whose content stood still.
+8. **`nextjs_article`** — ✅ done. The Claude Cookbook's 95 pages, from raw files already
+   on disk; 20 new tests (204 total). **95 extracted, 0 failures, 2.6 MiB.**
+
+   Phase 1 is now complete: **6,403 corpus files, 80.4 MiB, 121 categories, 0 extraction
+   errors, 0 quality failures, 0 orphans**, over a 54.1 MiB archive of 6,404 pages. A
+   re-run settles in 0.4 s with nothing to do.
+
+   The cookbook is the first source that **states its own metadata**: an embedded
+   `application/json` block gives the title, description, publication date, authors,
+   topic tags, and the GitHub URL of the notebook each page is generated from. That is
+   strictly better than anything the DOM would yield, so the extractor reads it and
+   scrapes only the body. `Extracted` gained `tags`, `authors`, and `source_file_url` to
+   carry it — all three site-stated, none inferred.
+
+   The body needed two repairs, both found by reading the output:
+
+   | Found by reading | Effect |
+   |---|---|
+   | Code blocks are not `<pre>` at all — each line is its own `<div>` | every one of 1,671 code blocks would have converted to prose: no fence, no line breaks |
+   | `<span class="sr-only">(opens in new tab)</span>` inside every external link | 389 links across 95 pages reading `[blog post(opens in new tab)](…)` |
+
+   The first is step 5's Docusaurus defect in a harder form — there the markup at least
+   said `<pre>`. `promote_code_blocks` rebuilds such blocks into real `<pre><code>`
+   before conversion, and the a11y-only selectors joined the shared strip list.
+
+   **Category comes from the notebook's directory** in the cookbook repository
+   (`tool_use/…` → `tool-use`), giving 17 groups. The URL is flat, so §7.3's rule would
+   have made 95 categories of one page each; the declared `categories` are tags —
+   multi-valued, so "the first one" would be arbitrary. They are kept in full as `tags`.
+
+   Fences carry no language, deliberately: the site states none anywhere in the markup,
+   and the notebooks mix Python with shell magics. Inferring one would be the kind of
+   plausible-looking guess §7.1 exists to avoid.
+
+   **Two stale-corpus gaps closed, both hit in the course of this step.** After the
+   extractor was edited, a normal run reported `skipped 95 unchanged`: `VERSION` had not
+   been bumped, and nothing else noticed. The index now stores a fingerprint of the
+   source, and it earned its place immediately — the re-run wrote 95 files of which
+   **89 were byte-identical**, touching only the 6 that had genuinely changed.
+
+   Then the same thing happened one layer down. Moving `raw_sha256` out of the
+   frontmatter is a *writer* change, which no extractor version could ever describe, and
+   the run again reported `skipped 6404 unchanged`. The fingerprint therefore spans the
+   extractor, the writer, and the layout — everything that decides what a file contains
+   and where it goes. Both gaps share a shape worth remembering: a hand-maintained
+   version number describes intent, and intent is exactly what gets forgotten.
 9. **Optional: enrichment** — 50-page sample across models, then a Batch run.
 10. **Optional: tier 2 browser** — unlocks `docs.databricks.com/api/**` (3,526 pages) and
     the next partner site.

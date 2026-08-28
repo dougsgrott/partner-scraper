@@ -38,17 +38,28 @@ class WriteResult:
 
 
 def content_hash(markdown: str) -> str:
-    """sha256 of the body — drives change detection for the corpus (PLAN.md §8)."""
-    return hashlib.sha256(markdown.encode("utf-8")).hexdigest()
+    """sha256 of the body **as stored** — drives change detection (PLAN.md §8).
+
+    Normalised the same way `render` writes it, so the value in the frontmatter can be
+    recomputed from the file. It could not before: the hash covered `record.markdown`
+    while the file held `record.markdown.strip()`, which differ by surrounding
+    whitespace, so every one of 6,403 files carried a hash that failed verification.
+    """
+    return hashlib.sha256(markdown.strip().encode("utf-8")).hexdigest()
 
 
 def build_frontmatter(record: Extracted, extracted_at: datetime) -> dict:
     """The ordered metadata block written above the body.
 
     Dates stay as `date` objects so YAML emits them unquoted and they round-trip.
-    `raw_sha256` names the archived bytes this file was parsed from, which makes the
-    file self-describing: `Index.rebuild` can restore the change-detection state from
-    `data/` alone, without consulting `fetch.db`.
+
+    Deliberately **not** here: `raw_sha256`, the hash of the archived bytes this was
+    parsed from. It lives in the index instead. A static site republishes byte-different
+    HTML on every build — a Databricks rebuild changed all 5,743 pages' bytes while
+    leaving their content alone — and a provenance hash in the frontmatter turns that
+    into a one-line diff on every file in the corpus. §8's third rung promises the
+    opposite: cosmetic upstream churn must not reach `data/`. The cost is that a rebuilt
+    index re-extracts once to recover the hashes, which is free and rewrites nothing.
     """
     front = {
         "title": record.title,
@@ -61,10 +72,12 @@ def build_frontmatter(record: Extracted, extracted_at: datetime) -> dict:
         "source_url": record.source_url,
         "canonical_url": record.canonical_url,
         "breadcrumbs": list(record.breadcrumbs),
+        "tags": list(record.tags),
+        "authors": list(record.authors),
         "code_languages": list(record.code_languages),
+        "source_file_url": record.source_file_url,
         "extractor": f"{record.extractor}@{record.extractor_version}",
         "content_hash": content_hash(record.markdown),
-        "raw_sha256": record.raw_sha256,
         "extracted_at": extracted_at.isoformat(timespec="seconds"),
     }
     return {k: v for k, v in front.items() if v not in (None, [], "")}

@@ -40,6 +40,9 @@ STRIP_SELECTORS = (
     ".theme-doc-toc-desktop", ".theme-doc-toc-mobile", ".tocCollapsible",
     ".theme-doc-breadcrumbs", ".pagination-nav", ".theme-doc-footer-edit-meta-row",
     ".theme-last-updated", ".hash-link", "button",
+    # Visually hidden a11y text. The cookbook puts "(opens in new tab)" inside every
+    # external link, which markdownify happily folds into the link's own text.
+    ".sr-only", ".visually-hidden", ".screen-reader-only",
 )
 
 _LANG_CLASS = re.compile(r"(?:^|\s)language-([\w+-]+)")
@@ -84,6 +87,28 @@ def code_text(pre: Tag) -> str:
     if lines:
         return "\n".join(line.get_text() for line in lines)
     return pre.get_text()
+
+
+def promote_code_blocks(node: Tag, container: str, *, line: str = "div") -> int:
+    """Turn code blocks built from per-line elements into real `<pre><code>` blocks.
+
+    Some sites render code as a stack of one-line `<div>`s with no `<pre>` anywhere —
+    which converts to prose, losing both the fence and every line break. Rebuilding the
+    text first (joining the line elements with newlines, the way `code_text` does for
+    `<pre>`) and wrapping it in a `<pre><code>` lets the normal converter do the rest.
+    Returns the number of blocks rebuilt.
+    """
+    count = 0
+    for region in node.select(container):
+        lines = region.select(line)
+        text = "\n".join(el.get_text() for el in lines) if lines else region.get_text()
+        if not text.strip():
+            continue
+        holder = BeautifulSoup("<pre><code></code></pre>", "html.parser")
+        holder.code.string = text
+        region.replace_with(holder.pre)
+        count += 1
+    return count
 
 
 def absolutise_urls(node: Tag, base_url: str) -> None:

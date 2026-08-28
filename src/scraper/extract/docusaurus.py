@@ -15,7 +15,13 @@ from __future__ import annotations
 import re
 
 from ..category import category_for
-from .base import Extracted, RawPayload, collapse_blank_lines, parse_date
+from .base import (
+    Extracted,
+    RawPayload,
+    collapse_blank_lines,
+    parse_date,
+    with_title_heading,
+)
 from .html import (
     STRIP_SELECTORS,
     absolutise_urls,
@@ -28,7 +34,7 @@ from .html import (
 )
 
 NAME = "docusaurus"
-VERSION = "5"   # v2 admonition labels; v3 code newlines; v4 absolute links; v5 keep the h1
+VERSION = "7"   # v4 absolute links; v5 keep the h1; v6 drop a11y text; v7 title invariant
 
 CONTENT_SELECTORS = (".theme-doc-markdown", "article", "main")
 
@@ -71,6 +77,9 @@ def extract(payload: RawPayload) -> Extracted:
         strip_chrome(content, CONTENT_STRIP_SELECTORS)
         absolutise_urls(content, canonical)
         markdown = collapse_blank_lines(to_markdown(content))
+
+    # A page whose layout hides the <h1> still has to name itself (PLAN.md §7.3).
+    markdown = with_title_heading(markdown, title)
 
     category, _ = category_for(payload.canonical_url, payload.include_paths)
 

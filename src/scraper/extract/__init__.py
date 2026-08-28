@@ -154,6 +154,7 @@ def run_extract(
 
         for sid, src in runnable.items():
             version = registry.version(src.extractor)
+            fingerprint = registry.output_fingerprint(src.extractor)
             for url in fetch_db.urls(source_id=sid):
                 row = fetch_db.get(url)
                 if not row or not row["raw_path"] or row["state"] not in ("ok", "not_modified"):
@@ -167,7 +168,8 @@ def run_extract(
                     existing = index.get(url)
                     already_ok = existing is not None and existing["status"] == "ok"
                     stale = index.needs_extract(
-                        url, raw_sha256=row["raw_sha256"], extractor_version=version
+                        url, raw_sha256=row["raw_sha256"], extractor_version=version,
+                        fingerprint=fingerprint,
                     )
                     if already_ok if only_failed else not stale:
                         summary.skipped_unchanged += 1
@@ -220,7 +222,8 @@ def run_extract(
                     index.record_duplicate(url, src.company, file_path=path,
                                            duplicate_of=first_url, source_id=sid,
                                            extractor_version=version,
-                                           raw_sha256=row["raw_sha256"])
+                                           raw_sha256=row["raw_sha256"],
+                                           fingerprint=fingerprint)
                     # It may have owned a file of its own before it became a duplicate.
                     _drop_stale_copy(previous, path, url, index, data_dir, summary)
                     logger.info("%s duplicates %s — one corpus file kept", url, first_url)
@@ -233,6 +236,7 @@ def run_extract(
                     result.path,
                     content_hash=writer.content_hash(record.markdown),
                     raw_sha256=row["raw_sha256"],
+                    fingerprint=fingerprint,
                     extracted_at=result.extracted_at,
                 )
                 _drop_stale_copy(previous, result.path, url, index, data_dir, summary)

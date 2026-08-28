@@ -50,6 +50,11 @@ class Extracted(BaseModel):
     updated_date: date | None = None
     breadcrumbs: list[str] = Field(default_factory=list)
     code_languages: list[str] = Field(default_factory=list)
+    # Stated by the site, not inferred: the cookbook publishes topic tags, authors, and
+    # a link to the notebook each page is generated from.
+    tags: list[str] = Field(default_factory=list)
+    authors: list[str] = Field(default_factory=list)
+    source_file_url: str | None = None
     extractor: str = "unknown"
     extractor_version: str = "0"
     # sha256 of the archived bytes this was parsed from — provenance, written to the

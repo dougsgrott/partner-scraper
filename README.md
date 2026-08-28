@@ -4,7 +4,11 @@ Keeps a local, always-current corpus of partner documentation — Anthropic, Dat
 and more to come — as clean Markdown with YAML frontmatter, so it can be read, grepped,
 diffed, and later embedded without anyone doing it by hand.
 
-The full design and its rationale live in [PLAN.md](PLAN.md).
+The full design and its rationale live in [PLAN.md](PLAN.md). What the pipeline got wrong
+on the way there — and what now stops it recurring — is in
+[docs/lessons-learned.md](docs/lessons-learned.md); read that one before writing a new
+extractor. Evidence that the corpus is complete, faithful, and useful is in
+[docs/validation.md](docs/validation.md).
 
 ## How it works
 
@@ -47,7 +51,7 @@ SPA shell and record it as a success.
 
 ```bash
 uv sync                    # Python 3.12+
-uv run pytest              # 184 tests, no network
+uv run pytest              # 200 tests, no network
 ```
 
 ## Usage
@@ -60,6 +64,7 @@ uv run python scripts/worklist.py --offline            # dumps only, no network 
 uv run python scripts/worklist.py --source databricks-docs --sample 5
 uv run python scripts/worklist.py --refresh-dumps      # merge live sitemaps into the dumps
 uv run python scripts/coverage.py --overview           # how much is already in the corpus?
+uv run python scripts/link_gap.py                      # pages we link to but never fetched
 ```
 
 `worklist.py` prints the funnel, so an unexpectedly small result says which stage caused it:
@@ -85,8 +90,14 @@ uv run python scripts/extract.py --source databricks-docs --limit 20
 uv run python scripts/extract.py --prune                # also delete orphaned files
 ```
 
-Re-extraction is automatic when an extractor's `VERSION` is bumped — fixing a parser bug
-means editing it, bumping the version, and re-running. No refetching, ever.
+Re-extraction is automatic when anything that shapes the output changes — bump an
+extractor's `VERSION`, or just edit it, since the index stores a fingerprint of the
+extractor, the writer, and the layout, and re-extracts when it moves. Fixing a parser bug
+means editing it and re-running. No refetching, ever.
+
+Three extractors, one per source shape: `passthrough_md` (Anthropic docs — served as
+Markdown, so no HTML is parsed at all), `docusaurus` (Databricks), and `nextjs_article`
+(the Claude Cookbook, whose pages state their own metadata in an embedded JSON block).
 
 Each page becomes one Markdown file with YAML frontmatter:
 
@@ -99,16 +110,23 @@ description: Delta Lake is the default open-source storage format…
 updated_date: 2026-07-10
 source_url: https://docs.databricks.com/aws/en/delta/
 breadcrumbs: [Tables, Table formats, Delta Lake]
-extractor: docusaurus@4
+extractor: docusaurus@7
 content_hash: 385f9eb4…
-raw_sha256: f580d86f…
-extracted_at: '2026-08-18T13:38:04+00:00'
+extracted_at: '2026-08-18T16:23:47+00:00'
 ---
 ```
 
+Cookbook pages add what their JSON states — `tags`, `authors`, and `source_file_url`
+pointing at the notebook on GitHub.
+
+What is deliberately absent is a hash of the archived bytes. A static site republishes
+byte-different HTML on every build, so recording that here would rewrite every file in
+the corpus each time Databricks rebuilds — for a change no reader would see. It lives in
+`state/index.db` instead.
+
 `category` comes from the URL path, not from a model — the docs' own taxonomy, for free.
-`raw_sha256` names the archived bytes the file was parsed from, which is what lets
-`index.db` be rebuilt from `data/` alone.
+(The cookbook is the exception: its URLs are flat, so pages are grouped by the notebook's
+directory in the cookbook repo instead.)
 
 **Re-extracting an unchanged page rewrites nothing** — same bytes, same mtime — so a
 `--force` pass leaves the corpus untouched where nothing was actually said differently.
@@ -161,6 +179,20 @@ That run is the design working: 50 pages revalidated, **zero bytes transferred**
 Databricks answers `If-None-Match` with a `304`. Anthropic sends `no-store`, so a refresh
 there is a real re-fetch compared by content hash instead.
 
+### Validate
+
+Checks the corpus rather than the pipeline: is it complete, faithful, and useful?
+Read-only, and non-zero exit on failure so it can gate a release.
+
+```bash
+uv run python scripts/validate.py                      # 26 structural + integrity checks
+uv run python scripts/validate_fidelity.py             # every page vs the source it came from
+uv run python scripts/validate_retrieval.py            # 20 questions, BM25, no tokens
+uv run python scripts/sample_review.py --n 50          # draw a sample for human review
+```
+
+Results and what they mean: [docs/validation.md](docs/validation.md).
+
 ## Configuration
 
 [`config/sources.yaml`](config/sources.yaml) drives everything. A **source** is a tier
@@ -192,6 +224,7 @@ Add a partner site by adding a source. If no bespoke extractor fits it yet, `gen
 | `src/scraper/worklist/` | seeds → filters → robots → the list of URLs to fetch |
 | `src/scraper/fetch/` | rate limiting, the HTTP fetcher, the raw archive, and `fetch.db` |
 | `src/scraper/store/` | corpus writer (idempotent) + `index.db` manifest |
+| `src/scraper/validate/` | the corpus audit: integrity, invariants, coverage, fidelity |
 | `raw/` | **archive** — verbatim page bytes, gzipped. Gitignored, never hand-edited |
 | `data/` | **corpus** — the Markdown output. Gitignored; rebuildable from `raw/` |
 | `state/fetch.db` | what we asked for, what came back, HTTP validators |
@@ -201,21 +234,28 @@ Add a partner site by adding a source. If no bespoke extractor fits it yet, `gen
 `raw/` is the expensive artifact — it costs a crawl to recreate. `data/` and
 `state/index.db` are cheap: both can be regenerated from `raw/` with no network.
 
+A full refresh is ~2 hours and ~294 MiB at the configured rate. Re-extracting the whole
+corpus from `raw/` is ~7 minutes and no requests at all.
+
 ## Status
 
 | Step | State |
 |---|---|
 | 0 · repo layout | ✅ done |
-| 1 · worklist (dumps, filters, robots) | ✅ done — 566 / 95 / 5,720 = **6,381** URLs in scope |
+| 1 · worklist (dumps, filters, robots) | ✅ done — 566 / 95 / 5,743 = **6,404** URLs in scope |
 | 2 · raw store + `fetch.db` | ✅ done — 0 collisions over 40,618 URLs; 304 revalidation confirmed live |
 | 3 · tier-1 HTTP fetcher + politeness | ✅ done — 50 live pages, then 50 × `304` on refresh |
 | 4 · tier-0 `.md` fetcher | ✅ done — Anthropic docs fetched as native Markdown |
 | 5 · extractors + corpus | ✅ done — **6,301 pages, 77.9 MiB**, 1 quality failure |
 | 6 · corpus writer + index | ✅ done — a second `--force` pass rewrote **0 of 6,301** files; index rebuilds from `data/` exactly |
-| 7 · full phase-1 run + review | ✅ done — scope reconciled, dumps refreshed, two more extraction defects fixed |
-| 8 · cookbook extractor (`nextjs_article`) | next — 95 pages archived and currently deferred |
-| 9–10 · enrichment, browser tier | planned |
+| 7 · full phase-1 run + review | ✅ done — live refresh of all **6,404** pages in 2 h 03 m, 0 errors |
+| 8 · cookbook extractor (`nextjs_article`) | ✅ done — **95 pages**, metadata from the page's own JSON |
+| validation · audit, fidelity, retrieval | ✅ done — **566/566** pages match their served source; 0 failing checks |
+| 9–10 · enrichment, browser tier | next |
 
-A full cold crawl of phase 1 is ~1 h 45 m at the configured rate. Re-extracting the entire
-corpus from `raw/` takes ~8 minutes and **no requests at all** — which is the property the
+**Corpus today: 6,403 pages, 80.4 MiB, 121 categories — 0 extraction errors, 0 quality
+failures, 0 orphaned files.** The archive behind it is 54.1 MiB of gzipped originals.
+
+A full refresh of phase 1 is ~2 hours at the configured rate. Re-extracting the entire
+corpus from `raw/` takes ~7 minutes and **no requests at all** — which is the property the
 whole design is built around.

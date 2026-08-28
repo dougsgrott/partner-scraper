@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS pages (
     file_path         TEXT,
     extractor         TEXT,
     extractor_version TEXT,
+    output_fingerprint TEXT,
     extracted_at      TEXT NOT NULL,
     status            TEXT NOT NULL,
     error             TEXT
@@ -54,7 +55,8 @@ CREATE INDEX IF NOT EXISTS idx_pages_status   ON pages(status);
 _COLUMNS = [
     "url", "company", "source_id", "category", "title", "description",
     "published_date", "updated_date", "content_hash", "raw_sha256", "body_chars", "file_path",
-    "extractor", "extractor_version", "extracted_at", "status", "error",
+    "extractor", "extractor_version", "output_fingerprint", "extracted_at",
+    "status", "error",
 ]
 
 # "duplicate" — a second URL naming a document another URL already produced
@@ -91,7 +93,13 @@ class Index:
             self.conn.commit()
             return
         # Additive columns can just be added; the values fill in on the next extract pass.
-        for column, ddl in (("body_chars", "INTEGER"),):
+        if "extractor_fingerprint" in cols and "output_fingerprint" not in cols:
+            # Widened in step 8: the hash now covers the writer and layout too.
+            self.conn.execute(
+                "ALTER TABLE pages RENAME COLUMN extractor_fingerprint TO output_fingerprint")
+            self.conn.commit()
+            cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(pages)")}
+        for column, ddl in (("body_chars", "INTEGER"), ("output_fingerprint", "TEXT")):
             if cols and column not in cols:
                 self.conn.execute(f"ALTER TABLE pages ADD COLUMN {column} {ddl}")
                 self.conn.commit()
@@ -125,6 +133,7 @@ class Index:
         *,
         content_hash: str,
         raw_sha256: str | None = None,
+        fingerprint: str | None = None,
         extracted_at: datetime | None = None,
     ) -> None:
         self._upsert({
@@ -142,6 +151,7 @@ class Index:
             "file_path": str(file_path),
             "extractor": record.extractor,
             "extractor_version": record.extractor_version,
+            "output_fingerprint": fingerprint,
             "extracted_at": (extracted_at or datetime.now(UTC)).isoformat(timespec="seconds"),
             "status": "ok",
             "error": None,
@@ -158,7 +168,8 @@ class Index:
     def record_duplicate(self, url: str, company: str, *, file_path: str | Path,
                          duplicate_of: str, source_id: str | None = None,
                          extractor_version: str | None = None,
-                         raw_sha256: str | None = None) -> None:
+                         raw_sha256: str | None = None,
+                         fingerprint: str | None = None) -> None:
         """Record that this URL names a document already in the corpus.
 
         `raw_sha256` is kept for the same reason an `ok` row keeps it: without it the
@@ -171,6 +182,7 @@ class Index:
             "source_id": source_id,
             "file_path": str(file_path),
             "extractor_version": extractor_version,
+            "output_fingerprint": fingerprint,
             "raw_sha256": raw_sha256,
             "extracted_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "status": "duplicate",
@@ -195,7 +207,8 @@ class Index:
         return dict(row) if row else None
 
     def needs_extract(self, url: str, *, raw_sha256: str | None = None,
-                      extractor_version: str | None = None) -> bool:
+                      extractor_version: str | None = None,
+                      fingerprint: str | None = None) -> bool:
         """Whether a page should be (re-)extracted.
 
         Re-extract when it is new or previously failed, when the archived bytes changed
@@ -206,6 +219,8 @@ class Index:
         if row is None or row["status"] not in ("ok", "duplicate"):
             return True
         if extractor_version is not None and row["extractor_version"] != extractor_version:
+            return True
+        if fingerprint is not None and row["output_fingerprint"] != fingerprint:
             return True
         return raw_sha256 is not None and row["raw_sha256"] != raw_sha256
 
@@ -279,7 +294,12 @@ class Index:
 
     # -- maintenance -----------------------------------------------------
     def rebuild(self, data_dir: str | Path = "data") -> int:
-        """Repopulate the index from the Markdown files. Returns rows written."""
+        """Repopulate the index from the Markdown files. Returns rows written.
+
+        Everything the frontmatter states is restored. `raw_sha256` is not stated there
+        (see `writer.build_frontmatter`), so the next extract pass re-derives it — one
+        free pass over `raw/` that rewrites no files.
+        """
         self.conn.execute("DELETE FROM pages")
         count = 0
         for md in sorted(Path(data_dir).rglob("*.md")):
