@@ -1,0 +1,57 @@
+# Fitness-for-use question set. See docs/validation-plan.md §4.
+#
+# Written from what a partner-facing engineer would actually ask, NOT from what the corpus
+# happens to contain — questions drawn from the corpus would be guaranteed hits and would
+# measure nothing. A miss is a finding: either retrieval is weak or the page is absent.
+#
+# `expects` is a URL substring. A question is answered if a retrieved page's source_url
+# contains any of them.
+
+questions:
+  # --- Databricks ---------------------------------------------------------
+  - q: How do I enable Unity Catalog lineage for a table?
+    expects: ["/data-governance/unity-catalog"]
+  - q: What is Delta Lake and what file format does it use?
+    expects: ["/delta/"]
+  - q: How do I configure Auto Loader file detection modes?
+    expects: ["/ingestion/cloud-object-storage/auto-loader"]
+  - q: What is a compute policy and how do I define one?
+    expects: ["/admin/clusters/policy", "/compute/"]
+  - q: How do I read from Kafka using Structured Streaming?
+    expects: ["/structured-streaming/", "/connect/streaming"]
+  - q: What types of SQL warehouse are available?
+    expects: ["/compute/sql-warehouse", "/admin/sql/"]
+  - q: How do I schedule a job to run on a cron schedule?
+    expects: ["/jobs/"]
+  - q: How do I deploy a Databricks App?
+    expects: ["/dev-tools/databricks-apps"]
+  # Asked with the old product name on purpose: Databricks renamed Delta Sharing to
+  # OpenSharing, and a corpus that answers the question anyway is the point.
+  - q: How do I share data externally with Delta Sharing?
+    expects: ["/delta-sharing/", "/opensharing/"]
+  - q: What does the MERGE INTO SQL statement do?
+    expects: ["/sql/language-manual"]
+  - q: How do I set up Lakehouse Federation for PostgreSQL?
+    expects: ["/query-federation/"]
+  - q: How do I create a vector search index for retrieval?
+    expects: ["/vector-search", "/ai-search", "/generative-ai/"]
+
+  # --- Anthropic docs -----------------------------------------------------
+  - q: What is prompt caching and how long does a cache entry live?
+    expects: ["/docs/en/build-with-claude/prompt-caching"]
+  - q: How do I define a tool and handle tool use with the Messages API?
+    expects: ["/tool-use", "/agents-and-tools/"]
+  - q: What is the context window size of the Claude models?
+    expects: ["/about-claude/models", "/about-claude/glossary"]
+  - q: How does batch processing work and what does it cost?
+    expects: ["/batch", "/pricing"]
+  - q: What is extended thinking and when should I use it?
+    expects: ["/thinking", "/extended-thinking"]
+  - q: How do I stream a response from the API?
+    expects: ["/streaming"]
+  - q: What are Agent Skills?
+    expects: ["/agent-skills"]
+
+  # --- Cookbook -----------------------------------------------------------
+  - q: How do I improve RAG accuracy with contextual retrieval?
+    expects: ["/cookbook/capabilities-contextual-embeddings", "/cookbook/capabilities-retrieval"]
