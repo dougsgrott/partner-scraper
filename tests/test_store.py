@@ -251,6 +251,24 @@ def test_readers_are_not_locked_out_by_a_writer(index, tmp_path):
     assert index.conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
 
+def test_fingerprint_follows_the_extractor_s_imports():
+    """REGRESSION: `passthrough_md` delegates MDX conversion to `extract/mdx.py`, so a
+    rewrite of that converter changed every page while the corpus reported "skipped
+    unchanged". The hash now covers what the extractor is built from, not just its file."""
+    from scraper.extract import mdx, registry
+
+    before = registry.output_fingerprint("passthrough_md")
+    original = mdx.to_markdown.__doc__
+    try:
+        # the hash reads source from disk, so prove the dependency is *in* the hash by
+        # checking the module is one of the inputs rather than by monkeypatching
+        from scraper.extract import passthrough_md
+        assert mdx in registry._project_modules(passthrough_md)
+    finally:
+        assert mdx.to_markdown.__doc__ == original
+    assert before and len(before) == 12
+
+
 def test_fingerprint_covers_the_writer_not_just_the_extractor():
     from scraper.extract import registry
     from scraper.store import writer as writer_module

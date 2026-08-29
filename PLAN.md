@@ -343,7 +343,13 @@ def extract(raw: RawPayload) -> Extracted: ...   # pure; no I/O beyond raw
 Per-site extractors, keyed by `source_id`:
 
 - **`passthrough_md`** — split the served YAML frontmatter, keep `title`/`url`/
-  `description`, body passes through untouched. No HTML involved.
+  `description`. No HTML involved. The body passes through almost untouched: the one
+  transformation is **MDX → Markdown** (`extract/mdx.py`), because Anthropic publishes MDX
+  and the `.md` twin is only Markdown-shaped. A third of those pages carry JSX components,
+  and `<Card href=…>` hides 562 links from every Markdown parser. Cards become links,
+  `<Note>` and friends become blockquotes matching the Databricks admonition style, and
+  `Tabs`/`Steps`/`Accordion`/`CodeGroup` unwrap. Unrecognised components pass through
+  verbatim.
 - **`docusaurus`** (Databricks) — select `article.theme-doc-markdown`, drop nav/sidebar/
   footer/breadcrumb chrome, convert with `markdownify`; code fences take their language
   from `class="language-*"`; tables preserved. Metadata from `og:title`,
@@ -351,7 +357,9 @@ Per-site extractors, keyed by `source_id`:
 - **`nextjs_article`** (Anthropic cookbook) — select `<article>`, same conversion path,
   but the page states its own metadata in an embedded `application/json` block
   (title, description, date, authors, topic tags, and the GitHub URL of the source
-  notebook), so none of it has to be scraped from the DOM. Two repairs are needed:
+  notebook), so none of it has to be scraped from the DOM. Authors come from
+  `author_details`, which holds the display name the site shows; the `authors` array
+  beside it holds GitHub handles, kept as `author_handles`. Two repairs are needed:
   code blocks are not `<pre>` elements at all (each line is a `<div>`), and every
   external link carries a visually-hidden "(opens in new tab)".
 - **`generic`** — `trafilatura` fallback so a new partner site produces something usable

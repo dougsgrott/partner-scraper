@@ -30,6 +30,20 @@ What summaries missed, and only reading found:
 | Docusaurus `<h1>` wrapped in a `<header>` inside the content root | `0 errors` | 5,735 pages beginning mid-sentence |
 | Cookbook code blocks are not `<pre>` at all | `0 errors` | 1,671 code blocks rendered as prose |
 
+Content can also be *present and unreachable*. A third of the Anthropic docs pages ship
+MDX components, so 562 links sat in the corpus inside `<Card href=…>` where no Markdown
+parser could see them — every structural check passed, because JSX is not malformed
+Markdown, it is simply not Markdown. A human reading the page said "the Next steps links
+are missing"; they were not missing, they were inert. **"Present" and "usable" are
+different claims, and only one of them is easy to test.**
+
+The same holds for metadata, and there the automation is blinder still. Cookbook pages
+credited `Briiick` instead of Alexander Bricken for 77 of 94 pages, because the extractor
+read the GitHub-handle array rather than the display names sitting beside it. Every
+automated check passed: the field was present, non-empty, correctly typed, stable across
+runs, and matched the source exactly. **A well-formed value is not a correct one**, and
+only a reader who knows what a byline should look like can tell the difference.
+
 **The practice that works:** after any extractor change, open five real pages end to end —
 a long one, a short one, one with tables, one with code, one from each category shape.
 Then grep the whole corpus for things that should never appear (`<div`, `class="`,

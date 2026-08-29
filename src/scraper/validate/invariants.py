@@ -15,6 +15,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from ..extract import mdx
 from ..extract.base import MIN_BODY_CHARS, _unclosed_fence
 from ..store import writer
 from .report import Check, failed, passed, skipped, warned
@@ -29,19 +30,12 @@ LEAKS: tuple[tuple[str, str, bool], ...] = (
     ("screen_reader_text", r"\(opens in new tab\)",                      False),
 )
 
-_FENCE_BLOCK = re.compile(r"^(?P<f>`{3,}|~{3,}).*?(?:^(?P=f)`*\s*$|\Z)", re.MULTILINE | re.DOTALL)
-_INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`).+?(?<!`)\1(?!`)", re.DOTALL)
-
-
-def strip_code(body: str) -> str:
-    """Remove code — fenced *and* inline — so a rule cannot fire on documentation.
-
-    Both halves are load-bearing. `/aws/en/sql/user-alerts-create` lists the HTML tags an
-    alert may contain as `` `<div>` ``, and `/internal/directives` documents a `:::div`
-    directive the same way. Matching those is a false positive of exactly the kind that
-    made the extraction quality gate reject real pages (docs/lessons-learned.md §3).
-    """
-    return _INLINE_CODE.sub("", _FENCE_BLOCK.sub("", body))
+# One definition of "this is code", shared with the extractor that has to respect it.
+# Both halves are load-bearing: `/aws/en/sql/user-alerts-create` lists the HTML tags an
+# alert may contain as `` `<div>` ``, and `/internal/directives` documents a `:::div`
+# directive the same way. Matching those is a false positive of exactly the kind that made
+# the extraction quality gate reject real pages (docs/lessons-learned.md §3).
+strip_code = mdx.strip_code
 
 
 def load(data_dir: str | Path = "data") -> list[tuple[Path, dict, str]]:
@@ -94,6 +88,29 @@ def check_rooted_links(pages: list[tuple[Path, dict, str]], cfg=None) -> Check:
                   total=len(pages))
 
 
+_COMPONENT = re.compile(r"<([A-Z][A-Za-z0-9]*)\b")
+
+
+def check_mdx_converted(pages: list[tuple[Path, dict, str]]) -> Check:
+    """No structural MDX component may survive into the corpus.
+
+    Anthropic publishes MDX, so `<Card href=…>` reaches us holding links no Markdown
+    parser can see — 562 of them, across a third of that source. `extract/mdx.py`
+    converts the families the site uses; this catches the day it starts using a shape the
+    converter does not handle, or a page where conversion silently failed.
+    """
+    hits = []
+    for path, _, body in pages:
+        names = set(_COMPONENT.findall(strip_code(body))) & mdx.KNOWN
+        if names:
+            hits.append(f"{path}  ({', '.join(sorted(names))})")
+    if hits:
+        return failed("mdx_converted", f"{len(hits)} file(s) still carry MDX components",
+                      count=len(hits), total=len(pages), samples=hits)
+    return passed("mdx_converted", f"no unconverted components across {len(pages)} files",
+                  total=len(pages))
+
+
 def check_titles(pages: list[tuple[Path, dict, str]]) -> Check:
     """Every document opens with a heading naming it (§7.3)."""
     bad = [str(p) for p, front, body in pages
@@ -135,7 +152,7 @@ REQUIRED = ("title", "company", "source_id", "category", "source_url", "extracto
             "content_hash", "extracted_at")
 EXPECTED_BY_SOURCE = {
     "databricks-docs": ("description", "updated_date", "breadcrumbs"),
-    "anthropic-cookbook": ("description", "published_date", "source_file_url"),
+    "anthropic-cookbook": ("description", "published_date", "source_file_url", "authors"),
 }
 
 
@@ -228,6 +245,7 @@ def run(data_dir: str | Path = "data", cfg=None) -> list[Check]:
         passed("corpus_present", f"{len(pages)} files", total=len(pages)),
         *check_leaks(pages),
         check_rooted_links(pages, cfg),
+        check_mdx_converted(pages),
         check_titles(pages),
         check_fences(pages),
         check_body_length(pages),

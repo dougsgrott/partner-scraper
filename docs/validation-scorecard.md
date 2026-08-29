@@ -21,7 +21,6 @@ Score it with: `uv run python scripts/sample_review.py --score docs/validation-s
 
 | # | page | url | title | complete | code | links | metadata | notes |
 |---|---|---|---|---|---|---|---|---|
-
 | 1 | `data/databricks/sparkr/2026-06/aws-en-sparkr-sparklyr.md` | https://docs.databricks.com/aws/en/sparkr/sparklyr |  |  |  |  |  |  |
 | 2 | `data/databricks/mlflow/2023-10/aws-en-mlflow-workspace-model-registry-example.md` | https://docs.databricks.com/aws/en/mlflow/workspace-model-registry-example |  |  |  |  |  |  |
 | 3 | `data/databricks/files/2026-07/aws-en-files-write-data.md` | https://docs.databricks.com/aws/en/files/write-data |  |  |  |  |  |  |

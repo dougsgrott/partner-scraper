@@ -25,6 +25,7 @@ from urllib.parse import urljoin
 import yaml
 
 from ..category import category_for
+from . import mdx
 from .base import (
     Extracted,
     RawPayload,
@@ -34,7 +35,7 @@ from .base import (
 )
 
 NAME = "passthrough_md"
-VERSION = "3"   # v2: category from the page URL; v3: absolute links + a title heading
+VERSION = "4"   # v3: absolute links + a title heading; v4: MDX components → Markdown
 
 _FRONTMATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 _FENCE_LANG = re.compile(r"^```([\w+-]+)", re.MULTILINE)
@@ -91,7 +92,10 @@ def extract(payload: RawPayload) -> Extracted:
     canonical = str(meta.get("url") or "").strip() or _strip_md(payload.canonical_url)
     category, _ = category_for(canonical, payload.include_paths)
 
-    body = with_title_heading(absolutise_links(body, canonical), title)
+    # MDX first: a `<Card href="/docs/en/…">` should reach the link absolutiser as a
+    # Markdown link. Every href the site serves today is already absolute, but the
+    # ordering means a future rooted one is handled by the existing path.
+    body = with_title_heading(absolutise_links(mdx.to_markdown(body), canonical), title)
 
     return Extracted(
         title=title,

@@ -21,11 +21,13 @@ META = {
     "title": "Enhancing RAG with contextual retrieval",
     "description": "Improve RAG accuracy by adding context to chunks.",
     "path": "capabilities/contextual-embeddings/guide.ipynb",
-    "authors": ["Anthropic"],
+    "authors": ["Briiick"],
     "date": "2024-09-13",
     "categories": ["RAG & Retrieval", "Tools"],
     "slug": "capabilities-contextual-embeddings-guide",
     "github_url": "https://github.com/anthropics/claude-cookbooks/blob/main/x/guide.ipynb",
+    "author_details": [{"username": "Briiick", "name": "Alexander Bricken",
+                        "website": "https://github.com/Briiick"}],
 }
 
 PAGE = """
@@ -79,8 +81,47 @@ def test_metadata_comes_from_the_embedded_json(cookbook):
     assert record.description == META["description"]
     assert record.published_date == date(2024, 9, 13)
     assert record.tags == ["RAG & Retrieval", "Tools"]
-    assert record.authors == ["Anthropic"]
+    assert record.authors == ["Alexander Bricken"]
+    assert record.author_handles == ["Briiick"]
     assert record.source_file_url == META["github_url"]
+
+
+def test_the_display_name_is_preferred_over_the_handle(cookbook):
+    """REGRESSION: `authors` holds GitHub handles, so 77 of 94 pages credited `Briiick`
+    rather than Alexander Bricken. Found by the human review pass, on page three."""
+    record = cookbook[0]
+    assert record.authors == ["Alexander Bricken"]
+    assert record.author_handles == ["Briiick"]
+
+
+def test_a_handle_without_a_display_name_is_kept_as_is():
+    meta = {**META, "author_details": [{"username": "Briiick", "name": ""}]}
+    page = PAGE.replace(json.dumps({"data": {"cookbook": META}}),
+                        json.dumps({"data": {"cookbook": meta}}))
+    record, _ = extract_payload(payload(page), "nextjs_article")
+    assert record.authors == ["Briiick"] and record.author_handles == ["Briiick"]
+
+
+def test_missing_author_details_falls_back_to_handles():
+    meta = {k: v for k, v in META.items() if k != "author_details"}
+    page = PAGE.replace(json.dumps({"data": {"cookbook": META}}),
+                        json.dumps({"data": {"cookbook": meta}}))
+    record, _ = extract_payload(payload(page), "nextjs_article")
+    assert record.authors == ["Briiick"]
+
+
+def test_multiple_authors_stay_index_aligned():
+    """10 real pages have two authors; a name and handle that drift apart would be worse
+    than either on its own."""
+    meta = {**META,
+            "authors": ["rodrigo-olivares", "JiriDeJonghe"],
+            "author_details": [{"username": "JiriDeJonghe", "name": "Jiri De Jonghe"},
+                               {"username": "rodrigo-olivares", "name": "Rodrigo Olivares"}]}
+    page = PAGE.replace(json.dumps({"data": {"cookbook": META}}),
+                        json.dumps({"data": {"cookbook": meta}}))
+    record, _ = extract_payload(payload(page), "nextjs_article")
+    assert record.author_handles == ["rodrigo-olivares", "JiriDeJonghe"]
+    assert record.authors == ["Rodrigo Olivares", "Jiri De Jonghe"]
 
 
 def test_category_groups_by_notebook_directory(cookbook):

@@ -96,7 +96,10 @@ def draw(data_dir: str, n: int, seed: int) -> list[tuple[Path, dict]]:
 
 
 def write_scorecard(rows: list[tuple[Path, dict]], out: Path, total: int, seed: int) -> None:
-    lines = [HEADER.format(n=len(rows), total=total, seed=seed, out=out)]
+    # `rstrip` matters: the header template ends with the separator row and a newline, and
+    # joining on "\n" would insert a blank line after it — which closes the table, leaving
+    # every data row to render as one run-on paragraph.
+    lines = [HEADER.format(n=len(rows), total=total, seed=seed, out=out).rstrip("\n")]
     for i, (path, front) in enumerate(rows, 1):
         lines.append(f"| {i} | `{path}` | {front.get('source_url')} |  |  |  |  |  |  |")
     out.parent.mkdir(parents=True, exist_ok=True)
