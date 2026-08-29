@@ -22,7 +22,7 @@ uv run python scripts/sample_review.py --n 50                      # draw the hu
 
 | Question | Evidence | Result |
 |---|---|---|
-| Faithful? | All 566 Anthropic pages vs the Markdown the site itself served | **566/566 exact match** |
+| Faithful? | All 566 Anthropic pages vs the Markdown the site itself served | **363 byte-exact + 203 content-preserved** |
 | Faithful? | 15 cookbook pages vs the real `.ipynb` on GitHub | **162/162 code cells recovered** |
 | Faithful? | 100 Databricks pages vs an independently-written extractor | **100/100 above threshold** |
 | Sound? | 26 structural and integrity checks over all 6,403 files | **22 passed, 4 warned, 0 failed** |
@@ -35,10 +35,25 @@ uv run python scripts/sample_review.py --n 50                      # draw the hu
 ## 1. Fidelity — does each file match its source?
 
 **Anthropic docs: proved, not sampled.** The archive holds the Markdown the site served,
-so the comparison is exact and covers every page. Both sides are normalised into one form
-— links canonicalised, whitespace collapsed — and the corpus body must then equal the
-served body character for character. **All 566 match.** For a third of the corpus there is
-no sampling error to argue about.
+so the comparison covers every page rather than a sample.
+
+- **363 pages are byte-exact.** Both sides are normalised into one form — links
+  canonicalised, whitespace collapsed — and the corpus body then equals the served body
+  character for character.
+- **203 pages are content-preserved.** Anthropic publishes MDX, so those pages carry JSX
+  components that are converted to Markdown (PLAN.md §7.1). Conversion is not invertible,
+  so the assertion is instead that nothing was lost: every link target in the source
+  appears in the output, and every prose word survives.
+
+This is a deliberate downgrade from the earlier 566/566 byte-exact figure, and it bought
+562 links that no Markdown parser could previously see. Normalising the served side with
+our own converter would be circular, so it is not offered.
+
+**That weaker check immediately proved it was not weak enough to be useless.** On its
+first run it failed 17 pages for one or two lost words — the card converter had been
+running its blurb through the inline-code stripper, deleting things like
+`` `LanguageModelSession` `` from the corpus. A word-level assertion caught what no
+structural check would have.
 
 **The cookbook: checked against the real notebooks.** Each page names the `.ipynb` it was
 generated from, so GitHub is ground truth for the hardest extraction in the project —
@@ -153,6 +168,27 @@ code, links, metadata.
 Score it with `uv run python scripts/sample_review.py --score docs/validation-scorecard.md`.
 At n=50 a pass rate carries roughly **±14% at 95% confidence** — enough to catch a
 systematic problem, not enough to claim a precise quality figure.
+
+**It earned its place on page three.** The reviewer noticed that
+`cookbook-capabilities-summarization-guide.md` credited `Briiick` where the site shows
+**Alexander Bricken**: the extractor had read the `authors` array, which holds GitHub
+handles, while `author_details` beside it holds the display name. Measured across the
+archive, this affected **77 of 94 cookbook pages** and **37 of 40 distinct authors**.
+Frontmatter now carries both — `authors` for reading, `author_handles` for identity.
+
+No automated check in this suite could have found it. A handle is a perfectly well-formed
+author string: present, non-empty, correctly typed, stable across runs, and identical in
+the source. Only a person who knew what a byline should look like could see it was wrong.
+That is the argument for the human pass in one finding.
+
+**And page six produced a second.** On the CLI quickstart the reviewer noticed the "Next
+steps" links were absent from the Markdown and the breadcrumbs were missing. Investigation
+separated them: the links were *present but unreachable*, held inside MDX `<Card>`
+components that no Markdown parser reads — **562 of them across 203 pages** — while the
+breadcrumbs are genuinely not in what the site serves us (the `.md` twin carries only
+`title`, `url`, `description`), so they were deliberately not invented. Two reports, one
+real defect, one correct-as-built; the reviewer could not have known which was which, and
+that is exactly what a review pass is for.
 
 ---
 

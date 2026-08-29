@@ -110,6 +110,25 @@ def test_rooted_links_are_caught(corpus, cfg):
     assert status_of(invariants.run(data, cfg), "rooted_links") == FAILED
 
 
+def test_unconverted_mdx_is_caught(corpus):
+    """REGRESSION: `<Card href=…>` hides links from every Markdown parser."""
+    data, add = corpus
+    add(markdown=('# T\n\n<CardGroup>\n  <Card title="X" href="https://x/y">b</Card>\n'
+                  "</CardGroup>\n\n" + BODY),
+        source_url="https://docs.databricks.com/aws/en/delta/mdx",
+        canonical_url="https://docs.databricks.com/aws/en/delta/mdx")
+    assert status_of(invariants.run(data), "mdx_converted") == FAILED
+
+
+def test_a_component_shown_inside_code_is_not_flagged(corpus):
+    """A page documenting MDX legitimately contains `<Card>` in an example."""
+    data, add = corpus
+    add(markdown=("# T\n\nExample:\n\n```mdx\n<Card title=\"X\">b</Card>\n```\n\n" + BODY),
+        source_url="https://docs.databricks.com/aws/en/delta/mdxdoc",
+        canonical_url="https://docs.databricks.com/aws/en/delta/mdxdoc")
+    assert status_of(invariants.run(data), "mdx_converted") == PASSED
+
+
 def test_untitled_page_is_caught(corpus):
     data, add = corpus
     add(markdown=BODY, source_url="https://docs.databricks.com/aws/en/delta/untitled",
@@ -329,3 +348,94 @@ def test_notebook_comparison_notices_missing_code():
     notebook = {"cells": [{"cell_type": "code", "source": ["import pandas as pd\n"]}]}
     result = compare_notebook("# T\n\nNo code here at all.\n", notebook)
     assert not result.ok and "not found in fences" in result.reason
+
+
+# --- the review scorecard --------------------------------------------------
+
+def test_scorecard_is_a_well_formed_markdown_table(tmp_path, corpus):
+    """REGRESSION: a blank line between the separator and the first row closes the table,
+    and every page renders as one run-on paragraph instead."""
+    import runpy
+    import sys
+
+    data, add = corpus
+    for i in range(3):
+        add(source_url=f"https://docs.databricks.com/aws/en/delta/p{i}",
+            canonical_url=f"https://docs.databricks.com/aws/en/delta/p{i}")
+
+    out = tmp_path / "scorecard.md"
+    argv = ["sample_review.py", "--data-dir", str(data), "--n", "4", "--out", str(out)]
+    old = sys.argv
+    sys.argv = argv
+    try:
+        runpy.run_path("scripts/sample_review.py", run_name="__main__")
+    finally:
+        sys.argv = old
+
+    lines = out.read_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("| # |"))
+    table = lines[start:]
+    assert table[1].startswith("|---")
+    body = [line for line in table[2:] if line.strip()]
+    assert body, "the table has no rows"
+    assert "" not in table[2:2 + len(body)], "a blank line inside the table closes it"
+
+    widths = {line.count("|") for line in table[:2] + body}
+    assert len(widths) == 1, f"ragged table: {widths}"
+
+
+def test_scorecard_scoring_reads_marks_back(tmp_path, capsys):
+    """A filled scorecard must summarise; an empty one must say so rather than claim 100%."""
+    import runpy
+    import sys
+
+    card = tmp_path / "filled.md"
+    card.write_text(
+        "| # | page | url | title | complete | code | links | metadata | notes |\n"
+        "|---|---|---|---|---|---|---|---|---|\n"
+        "| 1 | `a.md` | https://x/a | y | y | y | y | y |  |\n"
+        "| 2 | `b.md` | https://x/b | y | n | y | y | y | lost a section |\n",
+        encoding="utf-8")
+
+    old = sys.argv
+    sys.argv = ["sample_review.py", "--score", str(card)]
+    try:
+        with pytest.raises(SystemExit) as exit_info:
+            runpy.run_path("scripts/sample_review.py", run_name="__main__")
+    finally:
+        sys.argv = old
+
+    assert exit_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "2 pages reviewed" in out
+    assert "1/2 = 50%" in out          # one page carries a failing dimension
+
+
+# --- fidelity: exact for plain pages, content-preserving for converted ones ---
+
+def test_content_preservation_accepts_a_faithful_conversion():
+    from scraper.validate.fidelity import content_preserved
+
+    served = ('<CardGroup>\n  <Card title="Auth" href="https://x/auth">API keys and '
+              '`profiles`</Card>\n</CardGroup>')
+    ours = "- [Auth](https://x/auth) — API keys and `profiles`"
+    ok, reason = content_preserved(ours, served)
+    assert ok, reason
+
+
+def test_content_preservation_notices_a_lost_link():
+    from scraper.validate.fidelity import content_preserved
+
+    served = '<Card title="Auth" href="https://x/auth">API keys</Card>'
+    ok, reason = content_preserved("- **Auth** — API keys", served)
+    assert not ok and "link" in reason
+
+
+def test_content_preservation_notices_lost_words():
+    """REGRESSION: the card blurb was run through `strip_code`, deleting inline code from
+    17 pages. This is the check that found it."""
+    from scraper.validate.fidelity import content_preserved
+
+    served = '<Card title="Apple" href="https://x/a">Swift package for `LanguageModelSession`</Card>'
+    ok, reason = content_preserved("- [Apple](https://x/a) — Swift package for", served)
+    assert not ok and "word" in reason

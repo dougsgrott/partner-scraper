@@ -53,7 +53,10 @@ class Extracted(BaseModel):
     # Stated by the site, not inferred: the cookbook publishes topic tags, authors, and
     # a link to the notebook each page is generated from.
     tags: list[str] = Field(default_factory=list)
+    # `authors` is what a reader wants ("Alexander Bricken"); `author_handles` is the
+    # GitHub identity behind it ("Briiick"), kept index-aligned with it.
     authors: list[str] = Field(default_factory=list)
+    author_handles: list[str] = Field(default_factory=list)
     source_file_url: str | None = None
     extractor: str = "unknown"
     extractor_version: str = "0"

@@ -56,12 +56,33 @@ def output_fingerprint(name: str) -> str | None:
         return None
     from ..store import layout, writer
 
+    modules = {*_project_modules(inspect.getmodule(extractor)), writer, layout}
     try:
-        sources = [inspect.getsource(inspect.getmodule(extractor)),
-                   inspect.getsource(writer), inspect.getsource(layout)]
+        sources = [inspect.getsource(m) for m in sorted(modules, key=lambda m: m.__name__)]
     except (OSError, TypeError):
         return None
     return hashlib.sha256("".join(sources).encode("utf-8")).hexdigest()[:12]
+
+
+def _project_modules(module) -> set:
+    """A module and the project modules it draws on.
+
+    Following imports matters: `passthrough_md` delegates its MDX conversion to
+    `extract/mdx.py`, and hashing only the extractor's own file meant a rewrite of that
+    converter changed every page's output while every page reported "skipped unchanged".
+    That is the third time a change slipped past this hash — first an unbumped `VERSION`,
+    then the writer, now an imported helper — so the rule is now "everything the
+    extractor is built from", resolved from what its namespace actually holds.
+    """
+    if module is None:
+        return set()
+    found = {module}
+    for value in vars(module).values():
+        owner = value if inspect.ismodule(value) else inspect.getmodule(value)
+        name = getattr(owner, "__name__", "")
+        if owner is not None and name.startswith("scraper.") and owner not in found:
+            found.add(owner)
+    return found
 
 
 def implemented() -> frozenset[str]:

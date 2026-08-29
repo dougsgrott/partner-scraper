@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -29,6 +30,11 @@ from ..store import writer
 from .report import Check, failed, passed, skipped
 
 _FRONTMATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+_COMPONENT = re.compile(r"<([A-Z][A-Za-z0-9]*)\b")
+_COMPONENT_TAG = re.compile(r"</?[A-Z][A-Za-z0-9]*\b[^>]*>", re.DOTALL)
+_ATTRIBUTE = re.compile(r"""[A-Za-z][\w-]*\s*=\s*(?:"[^"]*"|'[^']*'|\{[^}]*\})""")
+_HREF = re.compile(r'href="([^"]+)"')
+_WORD = re.compile(r"[a-z0-9]+")
 _BLANKS = re.compile(r"\n{3,}")
 
 
@@ -97,10 +103,48 @@ def align_pair(ours: str, theirs: str, *, title: str, canonical: str) -> tuple[s
     return ours_aligned, theirs_aligned
 
 
+def source_has_components(served: str) -> bool:
+    """Whether the served Markdown carries MDX the extractor is expected to convert."""
+    from ..extract import mdx
+
+    return bool({m for m in _COMPONENT.findall(mdx.strip_code(served))} & mdx.KNOWN)
+
+
+def content_preserved(ours: str, theirs: str) -> tuple[bool, str]:
+    """Everything the source said still present, after a conversion that is not invertible.
+
+    Two assertions: every link target survives, and every prose word survives. Attribute
+    noise the conversion deliberately drops (`icon="lock"`, `cols={3}`) is excluded, as
+    are the component names themselves.
+    """
+    from ..extract import mdx
+
+    missing_links = [href for href in set(_HREF.findall(theirs)) if href not in ours]
+    if missing_links:
+        return False, f"{len(missing_links)} link(s) lost, e.g. {missing_links[0]}"
+
+    prose = _ATTRIBUTE.sub(" ", _COMPONENT_TAG.sub(" ", theirs))
+    theirs_words = Counter(_WORD.findall(prose.lower()))
+    ours_words = Counter(_WORD.findall(ours.lower()))
+    for name in mdx.KNOWN:                       # tag names are markup, not content
+        theirs_words.pop(name.lower(), None)
+    lost = {w: n - ours_words.get(w, 0) for w, n in theirs_words.items()
+            if ours_words.get(w, 0) < n}
+    if lost:
+        worst = sorted(lost.items(), key=lambda kv: -kv[1])[:3]
+        return False, f"{sum(lost.values())} word(s) lost, e.g. {worst}"
+    return True, ""
+
+
 def compare_served_markdown(fetch_db_path: str | Path = "state/fetch.db",
                             data_dir: str | Path = "data",
                             source_id: str = "anthropic-docs") -> list[Comparison]:
-    """Every corpus page for a source, against the Markdown its site served."""
+    """Every corpus page for a source, against the Markdown its site served.
+
+    Pages whose source is plain Markdown must match **exactly**. Pages carrying MDX are
+    converted (PLAN.md §7.1), and conversion is not invertible, so those are held to
+    content preservation instead: every link and every word still present.
+    """
     conn = sqlite3.connect(fetch_db_path)
     conn.row_factory = sqlite3.Row
     archived = {r["url"]: r["raw_path"] for r in conn.execute(
@@ -119,13 +163,17 @@ def compare_served_markdown(fetch_db_path: str | Path = "state/fetch.db",
             continue
 
         canonical = str(front.get("canonical_url", ""))
-        ours, theirs = align_pair(body, served_body(rawstore.read(raw_path)),
-                                  title=str(front.get("title", "")), canonical=canonical)
-        if ours == theirs:
-            results.append(Comparison(front["source_url"], True))
+        served = served_body(rawstore.read(raw_path))
+        ours, theirs = align_pair(body, served, title=str(front.get("title", "")),
+                                  canonical=canonical)
+        converted = source_has_components(served)
+
+        if not converted:
+            ok, reason = (ours == theirs), _describe(ours, theirs) if ours != theirs else ""
         else:
-            results.append(Comparison(front["source_url"], False, _describe(ours, theirs),
-                                      detail={"ours": len(ours), "theirs": len(theirs)}))
+            ok, reason = content_preserved(ours, theirs)
+        results.append(Comparison(front["source_url"], ok, reason,
+                                  detail={"converted": converted}))
     return results
 
 
@@ -147,15 +195,18 @@ def check_served_markdown(fetch_db_path: str | Path = "state/fetch.db",
     results = compare_served_markdown(fetch_db_path, data_dir, source_id)
     if not results:
         return skipped(f"fidelity_{source_id}", "no pages for this source")
+
+    exact = [r for r in results if not r.detail.get("converted")]
+    converted = [r for r in results if r.detail.get("converted")]
     bad = [r for r in results if not r.ok]
+    summary = (f"{len(exact)} plain page(s) byte-exact against the served Markdown; "
+               f"{len(converted)} MDX page(s) content-preserved")
     if bad:
-        return failed(f"fidelity_{source_id}",
-                      f"{len(bad)} of {len(results)} pages differ from the served Markdown",
+        return failed(f"fidelity_{source_id}", summary + f" — {len(bad)} failing",
                       count=len(bad), total=len(results),
                       samples=[f"{r.url}: {r.reason}" for r in bad[:5]])
-    return passed(f"fidelity_{source_id}",
-                  f"all {len(results)} pages match the Markdown the site served",
-                  total=len(results))
+    return passed(f"fidelity_{source_id}", summary, total=len(results),
+                  detail={"exact": len(exact), "content_preserved": len(converted)})
 
 
 # --- notebooks -------------------------------------------------------------

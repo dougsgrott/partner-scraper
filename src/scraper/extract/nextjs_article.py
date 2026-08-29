@@ -36,7 +36,7 @@ from .html import (
 )
 
 NAME = "nextjs_article"
-VERSION = "1"
+VERSION = "2"   # v2: display names for authors, not GitHub handles
 
 CONTENT_SELECTORS = ("article", "main")
 CODE_BLOCK_SELECTOR = ".code-scroll-region"
@@ -73,6 +73,8 @@ def extract(payload: RawPayload) -> Extracted:
         soup, "meta[name='description']", "meta[property='og:description']"
     )
 
+    names, handles = author_names(meta)
+
     content = next((node for sel in CONTENT_SELECTORS if (node := soup.select_one(sel))), None)
     if content is None:
         markdown = ""
@@ -97,12 +99,31 @@ def extract(payload: RawPayload) -> Extracted:
         description=description or None,
         published_date=parse_date(str(meta["date"])) if meta.get("date") else None,
         tags=[str(t) for t in (meta.get("categories") or [])],
-        authors=[str(a) for a in (meta.get("authors") or [])],
+        authors=names,
+        author_handles=handles,
         source_file_url=str(meta.get("github_url") or "") or None,
         code_languages=sorted({m.group(1) for m in _FENCE_LANG.finditer(markdown)}),
         extractor=NAME,
         extractor_version=VERSION,
     )
+
+
+def author_names(meta: dict) -> tuple[list[str], list[str]]:
+    """`(display names, handles)` for a page's authors.
+
+    The `authors` array holds GitHub handles — `Briiick` — while `author_details` holds
+    the name the site actually shows beside them — `Alexander Bricken`. Reading the
+    handle put an informal identifier on 77 of 94 cookbook pages; the human review pass
+    found it on the third page read.
+
+    The two lists stay index-aligned, so `authors[i]` is always the person behind
+    `author_handles[i]`. Falling back to the handle matters only if the site stops
+    publishing a name: all 105 records currently have one.
+    """
+    handles = [str(a) for a in (meta.get("authors") or [])]
+    names = {str(d.get("username")): str(d.get("name") or "").strip()
+             for d in (meta.get("author_details") or [])}
+    return [names.get(handle) or handle for handle in handles], handles
 
 
 def _category(meta: dict, payload: RawPayload) -> str:

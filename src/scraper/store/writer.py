@@ -74,6 +74,7 @@ def build_frontmatter(record: Extracted, extracted_at: datetime) -> dict:
         "breadcrumbs": list(record.breadcrumbs),
         "tags": list(record.tags),
         "authors": list(record.authors),
+        "author_handles": list(record.author_handles),
         "code_languages": list(record.code_languages),
         "source_file_url": record.source_file_url,
         "extractor": f"{record.extractor}@{record.extractor_version}",

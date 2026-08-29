@@ -96,7 +96,8 @@ extractor, the writer, and the layout, and re-extracts when it moves. Fixing a p
 means editing it and re-running. No refetching, ever.
 
 Three extractors, one per source shape: `passthrough_md` (Anthropic docs — served as
-Markdown, so no HTML is parsed at all), `docusaurus` (Databricks), and `nextjs_article`
+Markdown, so no HTML is parsed at all, though the MDX components a third of those pages
+carry are converted to real Markdown), `docusaurus` (Databricks), and `nextjs_article`
 (the Claude Cookbook, whose pages state their own metadata in an embedded JSON block).
 
 Each page becomes one Markdown file with YAML frontmatter:
@@ -116,8 +117,8 @@ extracted_at: '2026-08-18T16:23:47+00:00'
 ---
 ```
 
-Cookbook pages add what their JSON states — `tags`, `authors`, and `source_file_url`
-pointing at the notebook on GitHub.
+Cookbook pages add what their JSON states — `tags`, `authors` (display names, with the
+GitHub `author_handles` beside them), and `source_file_url` pointing at the notebook.
 
 What is deliberately absent is a hash of the archived bytes. A static site republishes
 byte-different HTML on every build, so recording that here would rewrite every file in
