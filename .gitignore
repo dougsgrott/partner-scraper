@@ -18,6 +18,9 @@ data/*
 state/*
 !state/.gitkeep
 
+# Generated change-feed reports (rendered from state/changes.db; not committed)
+reports/
+
 # Secrets
 .env
 

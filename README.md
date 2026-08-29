@@ -194,6 +194,24 @@ uv run python scripts/sample_review.py --n 50          # draw a sample for human
 
 Results and what they mean: [docs/validation.md](docs/validation.md).
 
+### Track what changed
+
+The first application built on the corpus. Records where the corpus stands, then reports
+what moved between two points — and, critically, whether *the vendor* moved it or *we* did.
+
+```bash
+uv run python scripts/changes.py snapshot --label baseline   # ~18 s, no network
+uv run python scripts/changes.py run                         # over what is already in raw/
+uv run python scripts/changes.py run --fetch                 # refresh first (~2 h)
+uv run python scripts/changes.py log <url>                   # one page's history
+```
+
+A content hash moving does not mean the vendor edited anything — re-running a revised
+extractor moves every page it touches. `output_fingerprint` separates the two, and pages
+attributed to our own pipeline never enter the feed.
+
+Full guide: [docs/changefeed.md](docs/changefeed.md).
+
 ## Configuration
 
 [`config/sources.yaml`](config/sources.yaml) drives everything. A **source** is a tier
@@ -226,14 +244,20 @@ Add a partner site by adding a source. If no bespoke extractor fits it yet, `gen
 | `src/scraper/fetch/` | rate limiting, the HTTP fetcher, the raw archive, and `fetch.db` |
 | `src/scraper/store/` | corpus writer (idempotent) + `index.db` manifest |
 | `src/scraper/validate/` | the corpus audit: integrity, invariants, coverage, fidelity |
+| `src/changefeed/` | **application 1** — what changed between runs, and who changed it |
 | `raw/` | **archive** — verbatim page bytes, gzipped. Gitignored, never hand-edited |
 | `data/` | **corpus** — the Markdown output. Gitignored; rebuildable from `raw/` |
 | `state/fetch.db` | what we asked for, what came back, HTTP validators |
 | `state/runs/` | one JSON summary per fetch run |
 | `state/index.db` | corpus manifest; rebuildable from `data/` |
+| `state/changes.db` | **the corpus's history** — snapshots and page versions |
+| `state/changes/blobs/` | past page bodies, gzipped, addressed by content hash |
+| `reports/changefeed/` | rendered change feeds. Gitignored |
 
 `raw/` is the expensive artifact — it costs a crawl to recreate. `data/` and
 `state/index.db` are cheap: both can be regenerated from `raw/` with no network.
+`state/changes.db` is the exception in the other direction: it is **not** rebuildable from
+anything, because the past exists nowhere else.
 
 A full refresh is ~2 hours and ~294 MiB at the configured rate. Re-extracting the whole
 corpus from `raw/` is ~7 minutes and no requests at all.
@@ -252,6 +276,8 @@ corpus from `raw/` is ~7 minutes and no requests at all.
 | 7 · full phase-1 run + review | ✅ done — live refresh of all **6,404** pages in 2 h 03 m, 0 errors |
 | 8 · cookbook extractor (`nextjs_article`) | ✅ done — **95 pages**, metadata from the page's own JSON |
 | validation · audit, fidelity, retrieval | ✅ done — **566/566** pages match their served source; 0 failing checks |
+| app 1 · change feed, phase 1 | ✅ done — 6,403-page snapshot in 18 s / 16.8 MiB; a re-snapshot of an unchanged corpus stores **0 bytes** |
+| app 1 · change feed, phase 2 (Agent SDK triage) | blocked on the churn measurement phase 1 produces |
 | 9–10 · enrichment, browser tier | next |
 
 **Corpus today: 6,403 pages, 80.4 MiB, 121 categories — 0 extraction errors, 0 quality
