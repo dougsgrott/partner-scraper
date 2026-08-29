@@ -376,6 +376,54 @@ changed its meaning.
 
 ---
 
+## 17. A design that "enables" something has not built it
+
+`kb-application.md` argued — correctly — that the two-stage architecture makes the corpus a
+time series rather than a snapshot, and listed a whole family of applications resting on
+that. One entry said `raw/` would accumulate a versioned history once a scheduled run
+existed.
+
+It would not have. `rawstore.write()` writes each URL to a fixed path, and both `fetch.db`
+and `index.db` upsert by URL. Every refresh overwrote the prior state with no trace, and
+adding a scheduler would have produced a very regular way of destroying history. **The
+corpus had no time dimension at all** — a fact that survived a full validation pass, a
+50-page human review, and a document specifically about what could be built on top, because
+nothing ever asked it to produce a "before".
+
+The architecture genuinely did enable the feature: acquisition and parsing were already
+separate, `content_hash` was already computed, `output_fingerprint` already distinguished
+our changes from theirs. Those are the hard parts, and they were right. But *enabling* and
+*having* are different claims, and prose slides between them easily. The retention layer
+had to be written.
+
+Two habits fall out:
+
+- **When a document claims a capability, check the code path that would deliver it.** The
+  cost here was one hour of reading; the cost of finding out during the first scheduled run
+  would have been the belief that a history existed.
+- **Ask what a feature would need to be *false*.** "We can diff across runs" needs two
+  states. Only one was ever kept.
+
+The same section also asserted that change detection worked via "ETag/Last-Modified in
+`fetch.db`". Those columns are populated, but every sampled Databricks `Last-Modified` is
+the same timestamp across unrelated pages — it is the deploy time, which is why a rebuild
+changed all 5,743 pages' bytes while leaving their content alone (§10). A validator that is
+present is not a validator that means what you want.
+
+### 17b. The fingerprint trap now has a consumer
+
+`output_fingerprint` has been widened three times after silently under-reporting: an
+unbumped `VERSION`, then the writer, then imported modules. The change feed is the first
+thing that *depends* on it being right, and it fails loudly rather than quietly — a page
+whose fingerprint moved is reported as our churn, not the vendor's, and if the fingerprint
+is missing entirely the change is `unknown` rather than being folded into the feed.
+
+The regression test is the MDX pass itself: three pages whose content hash and fingerprint
+both move must yield zero vendor changes. Without attribution, the run that converted MDX
+would have reported 566 upstream edits that never happened.
+
+---
+
 ## Checklist: adding a source or an extractor
 
 1. **Probe the live site first.** Content type, validators, whether the HTML contains the
