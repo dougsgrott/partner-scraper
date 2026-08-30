@@ -25,8 +25,9 @@ It ends with the constraints that rule some options out, and a recommendation.
 | `breadcrumbs` + `updated_date` | 5,742 pages (Databricks only) | hierarchy- and recency-aware retrieval |
 | Cookbook metadata | 94 pages: `authors` (40 distinct), `tags`, `published_date`, `source_file_url` | the only human-attributed, dated slice |
 | Change detection | `content_hash` + `output_fingerprint`, with history in `state/changes.db` | diffing across runs works — see the correction to item 19 |
-| Databricks churn | median **144 pages/week**, recent 8 weeks 250–450, worst week 1,045 | from `updated_date`; an upper bound on real content churn |
-| Anthropic churn | **unmeasured** — 0 of 661 pages carry `updated_date` or an HTTP validator | only a snapshot diff can establish it |
+| Databricks churn | **~399 pages/week measured** (estimate from `updated_date` was 250–450 — the proxy holds) | [`changefeed.md`](changefeed.md) § Measured churn |
+| Anthropic churn | **98.3% in 11 days**, but that window held a model launch; steady state still unknown | no `updated_date` and no usable HTTP validator, so only a snapshot diff can measure it |
+| Total churn | **1,277 pages / 11 days ≈ 813/week**, 19.9% of the corpus | the number every family-C application has to be sized against |
 | Raw archive | `raw/` — 70 MB of verbatim gzipped bytes | re-parse history without refetching |
 | Page size | median 3,730 chars · p90 19,672 · **10 pages > 500 KB** | most pages fit in context whole |
 
@@ -93,7 +94,10 @@ series**, not a snapshot. Nothing off the shelf does this for a vendor's documen
 15. **Release-note digest.** 237 Databricks release-note pages plus Anthropic's, filtered
     to the categories your team actually uses.
 16. **Deprecation and breaking-change watch.** Register the doc URLs your runbooks and
-    products cite; alert when one changes, moves, or 404s.
+    products cite; alert when one changes, moves, or 404s. **The signals now exist**: the
+    change feed ranks by status and policy language (*deprecated*, *no longer supported*,
+    *beta*), and a page that 404s upstream is marked `gone` and reported as `removed`
+    ([`changefeed.md`](changefeed.md)).
 17. **Model and pricing drift tracker** over the Anthropic API pages.
 18. **Link-rot monitor,** using `fetch.db` status codes plus the internal link graph.
 19. **Historical archive / time machine.** ~~With a scheduled run, `raw/` accumulates a
@@ -186,6 +190,11 @@ series**, not a snapshot. Nothing off the shelf does this for a vendor's documen
 - **Freshness decays without cadence.** 5,576 pages carry an `updated_date` in 2026, so the
   corpus is current *today*. Family C needed a retained before-state more than it needed a
   scheduler; that now exists, and `run` is invoked by hand.
+- **The volume is higher than any of these entries assumed.** ~813 pages change body per
+  week. Anything in family C that puts a model on each changed page costs a thousand-plus
+  calls a run, and any digest a person is expected to read has to be ordered, not merely
+  filtered — measurement showed ~91% of modifications are genuinely substantive, so there is
+  no threshold that makes the list short.
 - **The vendors' own change signals do not mean what they appear to.** Every sampled
   Databricks `Last-Modified` is the same timestamp across unrelated pages — it is the
   deploy time, and a rebuild changed all 5,743 pages' bytes while leaving their content

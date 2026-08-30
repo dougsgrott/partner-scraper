@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS pages (
     extractor         TEXT,
     extractor_version TEXT,
     output_fingerprint TEXT,
+    body_fingerprint  TEXT,
     extracted_at      TEXT NOT NULL,
     status            TEXT NOT NULL,
     error             TEXT
@@ -55,13 +56,21 @@ CREATE INDEX IF NOT EXISTS idx_pages_status   ON pages(status);
 _COLUMNS = [
     "url", "company", "source_id", "category", "title", "description",
     "published_date", "updated_date", "content_hash", "raw_sha256", "body_chars", "file_path",
-    "extractor", "extractor_version", "output_fingerprint", "extracted_at",
-    "status", "error",
+    "extractor", "extractor_version", "output_fingerprint", "body_fingerprint",
+    "extracted_at", "status", "error",
 ]
 
 # "duplicate" — a second URL naming a document another URL already produced
 # (`/x` and `/x/`, or a redirect). Settled, not failed: there is nothing to fix.
-STATUSES = ("ok", "duplicate", "extract_error", "quality_failed")
+#
+# "gone" — the page 404s (or 410s) upstream. Also settled: the vendor deleted it, and no
+# amount of re-extracting brings it back. Distinct from `extract_error`, which means we
+# failed on bytes we still hold.
+STATUSES = ("ok", "duplicate", "gone", "extract_error", "quality_failed")
+
+# Statuses whose rows still legitimately own a file on disk. A `gone` page keeps its last
+# known copy — see `mark_gone`.
+FILE_OWNING_STATUSES = ("ok", "gone")
 
 
 def _iso(value: date | None) -> str | None:
@@ -99,7 +108,8 @@ class Index:
                 "ALTER TABLE pages RENAME COLUMN extractor_fingerprint TO output_fingerprint")
             self.conn.commit()
             cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(pages)")}
-        for column, ddl in (("body_chars", "INTEGER"), ("output_fingerprint", "TEXT")):
+        for column, ddl in (("body_chars", "INTEGER"), ("output_fingerprint", "TEXT"),
+                            ("body_fingerprint", "TEXT")):
             if cols and column not in cols:
                 self.conn.execute(f"ALTER TABLE pages ADD COLUMN {column} {ddl}")
                 self.conn.commit()
@@ -134,6 +144,7 @@ class Index:
         content_hash: str,
         raw_sha256: str | None = None,
         fingerprint: str | None = None,
+        body_fingerprint: str | None = None,
         extracted_at: datetime | None = None,
     ) -> None:
         self._upsert({
@@ -152,6 +163,7 @@ class Index:
             "extractor": record.extractor,
             "extractor_version": record.extractor_version,
             "output_fingerprint": fingerprint,
+            "body_fingerprint": body_fingerprint,
             "extracted_at": (extracted_at or datetime.now(UTC)).isoformat(timespec="seconds"),
             "status": "ok",
             "error": None,
@@ -169,7 +181,8 @@ class Index:
                          duplicate_of: str, source_id: str | None = None,
                          extractor_version: str | None = None,
                          raw_sha256: str | None = None,
-                         fingerprint: str | None = None) -> None:
+                         fingerprint: str | None = None,
+                         body_fingerprint: str | None = None) -> None:
         """Record that this URL names a document already in the corpus.
 
         `raw_sha256` is kept for the same reason an `ok` row keeps it: without it the
@@ -183,11 +196,43 @@ class Index:
             "file_path": str(file_path),
             "extractor_version": extractor_version,
             "output_fingerprint": fingerprint,
+            "body_fingerprint": body_fingerprint,
             "raw_sha256": raw_sha256,
             "extracted_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "status": "duplicate",
             "error": f"same document as {duplicate_of}",
         })
+
+    def mark_gone(self, url: str, *, status_code: int | None = None) -> bool:
+        """Record that a page no longer exists upstream. Returns True if this changed it.
+
+        The corpus file is deliberately **left on disk**. The page is gone from the
+        vendor, not from our archive, and `raw/` still holds the bytes it was built from;
+        deleting on the strength of one HTTP response is the kind of destructive inference
+        this pipeline avoids elsewhere. `orphans` therefore still counts the file as
+        claimed, so a `--prune` pass will not remove it either.
+
+        What the status *does* change is visibility: snapshots capture `ok` rows only, so
+        a page marked gone drops out of the next snapshot and the change feed reports it
+        as `removed`. That is the signal the deprecation and link-rot watches need, and
+        nothing else in the pipeline produced it — a 404 previously left the index row
+        untouched and the page looked unchanged forever.
+
+        The cost of keeping the file: anything that globs `data/` without consulting the
+        index will still serve a deleted page as current. Consumers that care should read
+        `status` from `index.db`.
+        """
+        row = self.get(url)
+        if row is None or row["status"] not in ("ok", "duplicate"):
+            return False
+        merged = dict(row)
+        merged.update({
+            "status": "gone",
+            "error": f"HTTP {status_code or 404} — no longer published",
+            "extracted_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        })
+        self._upsert(merged)
+        return True
 
     def record_failure(self, url: str, company: str, *, status: str, error: str,
                        source_id: str | None = None) -> None:
@@ -270,8 +315,11 @@ class Index:
         revised extractor derives a different category — and nothing else would ever
         notice them: the index points at the new file, so the stale copy simply sits in
         `data/` being read by anything that globs the corpus.
+
+        A `gone` page's file is *not* an orphan: the row still claims it deliberately, so
+        that a page deleted upstream keeps its last known copy instead of being pruned.
         """
-        owned = self.file_paths()
+        owned = set().union(*(self.file_paths(s) for s in FILE_OWNING_STATUSES))
         return sorted(p for p in Path(data_dir).rglob("*.md") if _norm(p) not in owned)
 
     def largest(self, limit: int = 5) -> list[dict]:

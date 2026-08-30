@@ -38,8 +38,14 @@ class Corpus:
         self.changes_db = tmp_path / "changes.db"
         self.blob_dir = tmp_path / "blobs"
 
-    def populate(self, records, *, fingerprint: str | None = "fp1") -> None:
-        """Write records to disk and rebuild the manifest to match, as extract does."""
+    def populate(self, records, *, fingerprint: str | None = "fp1",
+                 body_fingerprint: str | None = "bf1") -> None:
+        """Write records to disk and rebuild the manifest to match, as extract does.
+
+        The two fingerprints move independently on purpose: `fingerprint`
+        (`output_fingerprint`) also covers the writer and layout, so it can move when
+        nothing about the body did. Attribution must follow `body_fingerprint` alone.
+        """
         index = Index(self.index_db)
         index.conn.execute("DELETE FROM pages")
         index.conn.commit()
@@ -47,7 +53,8 @@ class Corpus:
             result = writer.write(rec, self.data)
             index.upsert(rec, result.path,
                          content_hash=writer.content_hash(rec.markdown),
-                         fingerprint=fingerprint)
+                         fingerprint=fingerprint,
+                         body_fingerprint=body_fingerprint)
         index.close()
 
     def snap(self, label: str | None = None):
@@ -222,15 +229,16 @@ def test_our_own_extractor_churn_is_never_reported_as_vendor_change(corpus):
     """The MDX conversion rewrote all 566 Anthropic pages in one pass.
 
     Without attribution that run would have reported 566 upstream changes that never
-    happened. Every page here moves its content hash *and* its output fingerprint, which
+    happened. Every page here moves its content hash *and* its body fingerprint, which
     is exactly the signature of a re-extraction.
     """
-    corpus.populate([record("a"), record("b"), record("c")], fingerprint="fp1")
+    corpus.populate([record("a"), record("b"), record("c")],
+                    fingerprint="fp1", body_fingerprint="bf1")
     corpus.snap()
     corpus.populate(
         [record(s, markdown=f"# Page {s}\n\nConverted by a new extractor. " * 5)
          for s in ("a", "b", "c")],
-        fingerprint="fp2",
+        fingerprint="fp2", body_fingerprint="bf2",
     )
     corpus.snap()
 
@@ -244,9 +252,10 @@ def test_our_own_extractor_churn_is_never_reported_as_vendor_change(corpus):
 
 def test_a_missing_fingerprint_is_unattributed_rather_than_assumed(corpus):
     """A rebuilt index carries no fingerprint — say so instead of blaming the vendor."""
-    corpus.populate([record("a")], fingerprint=None)
+    corpus.populate([record("a")], fingerprint=None, body_fingerprint=None)
     corpus.snap()
-    corpus.populate([record("a", markdown="# Page a\n\nDifferent. " * 5)], fingerprint=None)
+    corpus.populate([record("a", markdown="# Page a\n\nDifferent. " * 5)],
+                    fingerprint=None, body_fingerprint=None)
     corpus.snap()
 
     result = corpus.diff_last_two()
@@ -256,11 +265,11 @@ def test_a_missing_fingerprint_is_unattributed_rather_than_assumed(corpus):
 
 
 def test_a_version_bump_without_a_fingerprint_still_reads_as_pipeline(corpus):
-    corpus.populate([record("a")], fingerprint=None)
+    corpus.populate([record("a")], fingerprint=None, body_fingerprint=None)
     corpus.snap()
     corpus.populate(
         [record("a", markdown="# Page a\n\nDifferent. " * 5, extractor_version="5")],
-        fingerprint=None,
+        fingerprint=None, body_fingerprint=None,
     )
     corpus.snap()
 
@@ -329,10 +338,10 @@ def test_report_of_an_empty_diff_says_so(corpus):
 
 
 def test_report_separates_our_churn_from_the_vendor_feed(corpus):
-    corpus.populate([record("a")], fingerprint="fp1")
+    corpus.populate([record("a")], fingerprint="fp1", body_fingerprint="bf1")
     corpus.snap()
     corpus.populate([record("a", markdown="# Page a\n\nRe-extracted. " * 5)],
-                    fingerprint="fp2")
+                    fingerprint="fp2", body_fingerprint="bf2")
     corpus.snap()
 
     text = report.render(corpus.diff_last_two(), blob_dir=corpus.blob_dir)
@@ -419,3 +428,227 @@ def test_headings_do_not_say_one_changes(corpus):
 
     assert "1 substantive vendor change" in text
     assert "1 changes" not in text
+
+
+def test_a_writer_only_change_is_still_the_vendors_change(corpus):
+    """The regression for the bug that cost this feature its first real measurement.
+
+    `output_fingerprint` covers the writer and the layout, neither of which can alter a
+    word of a page's body. When a one-line `writer.py` edit moved it — alongside a change
+    to the fingerprint formula itself — 594 genuine Databricks changes were reported as
+    our own churn. Here `output_fingerprint` moves and `body_fingerprint` does not, which
+    is exactly that shape.
+    """
+    corpus.populate([record("a")], fingerprint="fp1", body_fingerprint="bf1")
+    corpus.snap()
+    corpus.populate(
+        # A real vendor edit, not a reword: the limit moved, so it must reach the feed.
+        [record("a", markdown="# Page a\n\nThe cap is 5000 rows. " * 5)],
+        fingerprint="fp2", body_fingerprint="bf1")
+    corpus.snap()
+
+    result = corpus.diff_last_two()
+
+    assert [c.cause for c in result.by_kind(diff.MODIFIED)] == [classify.CONTENT]
+    assert result.by_cause(classify.PIPELINE) == []
+    assert len(result.feed()) == 1
+
+
+def test_attribution_ignores_output_fingerprint_entirely():
+    """Even with `output_fingerprint` disagreeing, the body hash decides."""
+    before = {"body_fingerprint": "bf1", "output_fingerprint": "fp1", "extractor": "d@7"}
+    after = {"body_fingerprint": "bf1", "output_fingerprint": "fp2", "extractor": "d@7"}
+
+    assert classify.attribute(before, after) == classify.CONTENT
+    assert classify.attribute(before, {**after, "body_fingerprint": "bf2"}) \
+        == classify.PIPELINE
+
+
+def test_a_snapshot_predating_body_fingerprint_is_unattributed():
+    """Snapshots taken before the column existed must say `unknown`, not guess.
+
+    Reporting them as `content` would be a guess in the vendor's favour; reporting them as
+    `pipeline` is the wrong answer this split exists to stop giving.
+    """
+    old = {"body_fingerprint": None, "output_fingerprint": "fp1", "extractor": "d@7"}
+    new = {"body_fingerprint": "bf1", "output_fingerprint": "fp2", "extractor": "d@7"}
+
+    assert classify.attribute(old, new) == classify.UNKNOWN
+
+
+def test_the_history_database_gains_a_column_without_losing_a_row(tmp_path):
+    """`changes.db` is the only copy of the corpus's past — migrating must be additive.
+
+    `index.db` can drop its table and rebuild from `data/`; there is nothing to rebuild
+    this from, so the migration is tested against an already-populated database rather
+    than only a fresh one.
+    """
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        "CREATE TABLE snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT, taken_at TEXT NOT NULL,"
+        " label TEXT, page_count INTEGER NOT NULL DEFAULT 0, note TEXT);"
+        "CREATE TABLE page_versions (snapshot_id INTEGER NOT NULL, url TEXT NOT NULL,"
+        " company TEXT, source_id TEXT, category TEXT, title TEXT, description TEXT,"
+        " updated_date TEXT, content_hash TEXT NOT NULL, output_fingerprint TEXT,"
+        " extractor TEXT, body_chars INTEGER, file_path TEXT,"
+        " PRIMARY KEY (snapshot_id, url));"
+        "INSERT INTO snapshots (taken_at, label, page_count) VALUES ('2026-08-29', 'old', 1);"
+        "INSERT INTO page_versions (snapshot_id, url, content_hash, extractor)"
+        " VALUES (1, 'https://x.test/a', 'deadbeef', 'docusaurus@7');"
+    )
+    conn.commit()
+    conn.close()
+
+    with ChangeDB(path) as db:
+        cols = {r["name"] for r in db.conn.execute("PRAGMA table_info(page_versions)")}
+        assert "body_fingerprint" in cols
+
+        versions = db.versions(1)
+        assert versions["https://x.test/a"]["content_hash"] == "deadbeef"
+        assert versions["https://x.test/a"]["body_fingerprint"] is None
+        assert db.snapshot(1).label == "old"
+
+
+def test_an_unchanged_wider_fingerprint_clears_a_page():
+    """`output_fingerprint` covers a superset of `body_fingerprint`.
+
+    An unchanged superset proves the subset is unchanged, so a page with no
+    `body_fingerprint` on either side is still safely the vendor's. This is what keeps
+    snapshots taken before the column existed useful instead of wholly unattributed.
+    """
+    before = {"body_fingerprint": None, "output_fingerprint": "fp1", "extractor": "d@7"}
+    after = {"body_fingerprint": None, "output_fingerprint": "fp1", "extractor": "d@7"}
+
+    assert classify.attribute(before, after) == classify.CONTENT
+
+
+def test_a_changed_wider_fingerprint_convicts_nobody():
+    """A moved `output_fingerprint` may be entirely writer or layout — it proves nothing.
+
+    This is the 594-page case: reporting it as `pipeline` was the bug, and reporting it as
+    `content` would be the opposite guess. Neither is supportable, so say so.
+    """
+    before = {"body_fingerprint": None, "output_fingerprint": "fp1", "extractor": "d@7"}
+    after = {"body_fingerprint": None, "output_fingerprint": "fp2", "extractor": "d@7"}
+
+    assert classify.attribute(before, after) == classify.UNKNOWN
+
+
+# --- severity ranking -----------------------------------------------------
+
+def test_status_language_outranks_a_larger_prose_edit():
+    """The signal reading proved most valuable, and the one the first version missed.
+
+    A one-line "no longer supported" matters more than a paragraph rewritten around it,
+    and neither a structural comparison nor a size comparison can tell them apart.
+    """
+    before = "The `pipelines.channel` property selects a runtime channel."
+    after = "The `pipelines.channel` property is no longer supported."
+    deprecation = classify.severity(classify.signals(before, after))
+
+    prose_before = "This page explains the feature in practice. " * 20
+    prose_after = "This page describes the behaviour in practice. " * 20
+    reword = classify.severity(classify.signals(prose_before, prose_after))
+
+    assert deprecation > reword
+
+
+def test_severity_is_scale_invariant():
+    """A regenerated reference page must not outrank a sharp deprecation.
+
+    Scoring by raw volume put a page with 11,181 status-matching lines at the top of the
+    feed purely because it is enormous. Density fixes that: the same evidence spread over
+    a hundred times more lines is not a hundred times more urgent.
+    """
+    sharp = {"status": 2, "changed_lines": 2}
+    bulky = {"status": 200, "changed_lines": 20_000}
+
+    assert classify.severity(sharp) > classify.severity(bulky)
+
+
+def test_the_feed_is_ordered_by_severity_not_alphabetically(corpus):
+    """With ~680 substantive changes in a run, ordering is the only reduction on offer."""
+    corpus.populate([record("aaa"), record("zzz")])
+    corpus.snap()
+    corpus.populate([
+        # Alphabetically first, but merely reworded at length.
+        record("aaa", markdown="# Page aaa\n\n" + "Reworded prose here. " * 60),
+        # Alphabetically last, but a deprecation.
+        record("zzz", markdown="# Page zzz\n\nThis parameter is no longer supported."),
+    ])
+    corpus.snap()
+
+    feed = corpus.diff_last_two().feed()
+
+    assert [c.url.rsplit("/", 1)[-1] for c in feed] == ["zzz", "aaa"]
+
+
+def test_a_huge_page_falls_back_to_an_unaligned_listing(corpus):
+    """`difflib` is superlinear and this corpus holds 6 MB pages; aligning them took
+    minutes. The fallback must be honest about what it is rather than look like a diff."""
+    big = "# Page a\n" + "".join(f"line {i} of the reference\n" for i in range(30_000))
+    corpus.populate([record("a", markdown=big)])
+    corpus.snap()
+    corpus.populate([record("a", markdown=big.replace("reference", "manual"))])
+    corpus.snap()
+
+    change = corpus.diff_last_two().by_kind(diff.MODIFIED)[0]
+    rendered = diff.render_diff(change, blob_dir=corpus.blob_dir)
+
+    assert "too large to align" in rendered
+    assert "@@" not in rendered
+
+
+# --- pages that disappear upstream ----------------------------------------
+
+def test_a_page_gone_upstream_leaves_the_snapshot_and_reports_removed(corpus):
+    """A 404 upstream must surface as a change; before this it surfaced as nothing.
+
+    `FetchDB.record_error` preserves the previous archive entry, so a deleted page kept
+    its last-known body, kept its `ok` index row, and reported as unchanged forever — the
+    exact opposite of what the deprecation and link-rot watches need.
+    """
+    corpus.populate([record("a"), record("b")])
+    corpus.snap()
+
+    index = Index(corpus.index_db)
+    assert index.mark_gone(record("b").source_url, status_code=404) is True
+    index.close()
+    corpus.snap()
+
+    result = corpus.diff_last_two()
+
+    assert [c.url for c in result.by_kind(diff.REMOVED)] == [record("b").source_url]
+
+
+def test_a_gone_page_keeps_its_file_and_is_not_an_orphan(corpus):
+    """Deleting on the strength of one HTTP response is destructive inference.
+
+    The row still claims the file, so `--prune` leaves it alone and the integrity check
+    does not start failing the moment a vendor removes a page.
+    """
+    corpus.populate([record("a")])
+    path = next(corpus.data.rglob("*.md"))
+
+    index = Index(corpus.index_db)
+    index.mark_gone(record("a").source_url, status_code=410)
+    orphans = index.orphans(corpus.data)
+    row = index.get(record("a").source_url)
+    index.close()
+
+    assert path.exists()
+    assert orphans == []
+    assert row["status"] == "gone" and "410" in row["error"]
+
+
+def test_marking_gone_is_idempotent_and_refuses_to_resurrect(corpus):
+    corpus.populate([record("a")])
+    index = Index(corpus.index_db)
+
+    assert index.mark_gone(record("a").source_url, status_code=404) is True
+    assert index.mark_gone(record("a").source_url, status_code=404) is False
+    assert index.mark_gone("https://docs.databricks.com/aws/en/never-seen") is False
+    index.close()

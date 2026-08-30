@@ -138,10 +138,11 @@ def _capture(
         "description": page["description"],
         "updated_date": page["updated_date"],
         "content_hash": content_hash,
-        # Not stated in the frontmatter — it lives only in the index. A rebuilt index
-        # therefore has none, which `classify.attribute` handles explicitly rather than
-        # guessing.
+        # Neither fingerprint is stated in the frontmatter — both live only in the
+        # index, so a rebuilt index has neither. `classify.attribute` handles that
+        # explicitly rather than guessing.
         "output_fingerprint": page["output_fingerprint"],
+        "body_fingerprint": page["body_fingerprint"],
         "extractor": _extractor(page, front),
         "body_chars": len(body.strip()),
         "file_path": str(path),

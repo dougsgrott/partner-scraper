@@ -207,8 +207,10 @@ uv run python scripts/changes.py log <url>                   # one page's histor
 ```
 
 A content hash moving does not mean the vendor edited anything — re-running a revised
-extractor moves every page it touches. `output_fingerprint` separates the two, and pages
-attributed to our own pipeline never enter the feed.
+extractor moves every page it touches. `body_fingerprint` separates the two, and pages
+attributed to our own pipeline never enter the feed. The feed itself is ordered by severity,
+weighted toward status and policy language (*deprecated*, *no longer supported*, *beta*), so
+the top of a 680-change run is the part worth reading.
 
 Full guide: [docs/changefeed.md](docs/changefeed.md).
 
@@ -277,7 +279,10 @@ corpus from `raw/` is ~7 minutes and no requests at all.
 | 8 · cookbook extractor (`nextjs_article`) | ✅ done — **95 pages**, metadata from the page's own JSON |
 | validation · audit, fidelity, retrieval | ✅ done — **566/566** pages match their served source; 0 failing checks |
 | app 1 · change feed, phase 1 | ✅ done — 6,403-page snapshot in 18 s / 16.8 MiB; a re-snapshot of an unchanged corpus stores **0 bytes** |
-| app 1 · change feed, phase 2 (Agent SDK triage) | blocked on the churn measurement phase 1 produces |
+| app 1 · first measurement | ✅ done — **1,277 pages changed body in 11 days** (Databricks ~399/week, matching the `updated_date` estimate; Anthropic launch-inflated) |
+| app 1 · attribution + ranking fixes | ✅ done — 594 false "our own churn" attributions eliminated; feed ordered by severity; full diff 10 min → **17 s** |
+| app 1 · deleted pages | ✅ done — a page that 404s upstream is marked `gone` and reported as `removed`; it was previously invisible forever |
+| app 1 · change feed, phase 2 (Agent SDK digest) | stage 1 built; recall measured — a run compresses to **~105k tokens** and every needle is reachable, including one at rank 1113/1116 ([decision record](docs/changefeed-phase-2.md)) |
 | 9–10 · enrichment, browser tier | next |
 
 **Corpus today: 6,403 pages, 80.4 MiB, 121 categories — 0 extraction errors, 0 quality

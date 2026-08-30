@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS page_versions (
     updated_date       TEXT,
     content_hash       TEXT NOT NULL,
     output_fingerprint TEXT,
+    body_fingerprint   TEXT,
     extractor          TEXT,
     body_chars         INTEGER,
     file_path          TEXT,
@@ -57,8 +58,15 @@ CREATE INDEX IF NOT EXISTS idx_pv_hash ON page_versions(content_hash);
 # is passed around as a plain dict keyed by these.
 VERSION_COLUMNS = [
     "url", "company", "source_id", "category", "title", "description", "updated_date",
-    "content_hash", "output_fingerprint", "extractor", "body_chars", "file_path",
+    "content_hash", "output_fingerprint", "body_fingerprint", "extractor", "body_chars",
+    "file_path",
 ]
+
+# Columns added after the first release. Every entry must be nullable and additive: this
+# database is the only copy of the corpus's past, so a migration may extend a row but must
+# never drop or rewrite one. `index.db` can take the shortcut of dropping its table and
+# rebuilding from `data/`; there is nothing to rebuild this from.
+_ADDED_COLUMNS = (("body_fingerprint", "TEXT"),)
 
 
 @dataclass(frozen=True)
@@ -85,7 +93,22 @@ class ChangeDB:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = connect(self.path)
         self.conn.executescript(_SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns a newer schema introduced. A no-op on a database just created.
+
+        Runs after `_SCHEMA`, so a fresh database already has every column and this does
+        nothing; an older one gets the additions. Deliberately the only kind of migration
+        offered here — see `_ADDED_COLUMNS`.
+        """
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(page_versions)")}
+        for column, ddl in _ADDED_COLUMNS:
+            if cols and column not in cols:
+                self.conn.execute(
+                    f"ALTER TABLE page_versions ADD COLUMN {column} {ddl}")
+                self.conn.commit()
 
     # -- context manager -------------------------------------------------
     def __enter__(self) -> Self:

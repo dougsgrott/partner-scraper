@@ -39,7 +39,7 @@ def version(name: str) -> str:
 
 
 def output_fingerprint(name: str) -> str | None:
-    """A hash of everything that decides what a page's file looks like.
+    """A hash of everything that decides what a page's *file* looks like.
 
     That is the extractor itself *plus* the writer and layout modules: the extractor
     decides the content, the writer decides the frontmatter, and layout decides the path.
@@ -50,13 +50,52 @@ def output_fingerprint(name: str) -> str | None:
     one layer down, where no extractor version could have caught it. Hashing the source
     catches both automatically. A false positive costs CPU and nothing else — since step
     6, rewriting an unchanged page leaves the file byte-identical.
+
+    This is the *re-extraction* trigger and deliberately errs wide. It is **not** the
+    right input for deciding who changed a page — see `body_fingerprint`.
     """
-    extractor = EXTRACTORS.get(name)
+    extractor = _module_for(name)
     if extractor is None:
         return None
     from ..store import layout, writer
 
-    modules = {*_project_modules(inspect.getmodule(extractor)), writer, layout}
+    return _hash_modules({*_project_modules(extractor), writer, layout})
+
+
+def body_fingerprint(name: str) -> str | None:
+    """A hash of everything that decides what a page *says*.
+
+    The extractor and the modules it is built from — and nothing else. Notably **not**
+    the writer or the layout: the writer decides the frontmatter and layout decides the
+    file path, and neither can change a word of the body.
+
+    That distinction is the whole point. `output_fingerprint` covers both, which makes it
+    the right trigger for re-extraction and the wrong input for attribution: the change
+    feed used it to answer "did *we* change this page, or did the vendor?", so a one-line
+    `writer.py` edit made 594 genuine Databricks changes look like our own churn. Worse,
+    the same commit widened the fingerprint *formula*, and because the value is stored per
+    page at extract time, changing how it is computed silently invalidated every stored
+    comparison at once.
+
+    Keep this hash narrow. Anything added here must be able to change the body.
+    """
+    extractor = _module_for(name)
+    if extractor is None:
+        return None
+    return _hash_modules(_project_modules(extractor))
+
+
+def _module_for(name: str):
+    extractor = EXTRACTORS.get(name)
+    return None if extractor is None else inspect.getmodule(extractor)
+
+
+def _hash_modules(modules) -> str | None:
+    """Hash a set of modules by source, in a stable order.
+
+    Sorting by `__name__` is load-bearing: a set iterates in an order that varies between
+    processes, and an unstable fingerprint would report every page as ours on every run.
+    """
     try:
         sources = [inspect.getsource(m) for m in sorted(modules, key=lambda m: m.__name__)]
     except (OSError, TypeError):

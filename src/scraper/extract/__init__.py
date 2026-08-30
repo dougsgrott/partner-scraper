@@ -53,6 +53,7 @@ class ExtractSummary:
     moved: int = 0
     pruned: int = 0
     duplicates: int = 0
+    gone: int = 0
     quality_failed: int = 0
     errors: int = 0
     missing_raw: int = 0
@@ -81,6 +82,8 @@ class ExtractSummary:
             + (f"   ({self.duplicates} duplicate URLs merged)" if self.duplicates else ""),
             *([f"  moved            {self.moved}  (stale copies removed)"] if self.moved else []),
             *([f"  pruned           {self.pruned}  (orphaned files removed)"] if self.pruned else []),
+            *([f"  gone             {self.gone}  (404 upstream; file kept, reported as removed)"]
+              if self.gone else []),
             f"  quality failed   {self.quality_failed}",
             f"  extract errors   {self.errors}",
             f"  missing raw      {self.missing_raw}",
@@ -155,8 +158,21 @@ def run_extract(
         for sid, src in runnable.items():
             version = registry.version(src.extractor)
             fingerprint = registry.output_fingerprint(src.extractor)
+            # Narrower: only what can change the body. Drives attribution in the change
+            # feed, while `fingerprint` above stays the re-extraction trigger.
+            body_fp = registry.body_fingerprint(src.extractor)
             for url in fetch_db.urls(source_id=sid):
                 row = fetch_db.get(url)
+
+                # A page the vendor deleted. Handled before the skip below, which would
+                # otherwise leave its index row untouched forever: the page kept reporting
+                # as unchanged, and the change feed never saw the deletion at all.
+                if row is not None and _is_gone(row):
+                    if index.mark_gone(url, status_code=row["status_code"]):
+                        summary.gone += 1
+                        logger.info("%s is gone upstream (HTTP %s)", url, row["status_code"])
+                    continue
+
                 if not row or not row["raw_path"] or row["state"] not in ("ok", "not_modified"):
                     continue
 
@@ -223,7 +239,8 @@ def run_extract(
                                            duplicate_of=first_url, source_id=sid,
                                            extractor_version=version,
                                            raw_sha256=row["raw_sha256"],
-                                           fingerprint=fingerprint)
+                                           fingerprint=fingerprint,
+                                           body_fingerprint=body_fp)
                     # It may have owned a file of its own before it became a duplicate.
                     _drop_stale_copy(previous, path, url, index, data_dir, summary)
                     logger.info("%s duplicates %s — one corpus file kept", url, first_url)
@@ -237,6 +254,7 @@ def run_extract(
                     content_hash=writer.content_hash(record.markdown),
                     raw_sha256=row["raw_sha256"],
                     fingerprint=fingerprint,
+                    body_fingerprint=body_fp,
                     extracted_at=result.extracted_at,
                 )
                 _drop_stale_copy(previous, result.path, url, index, data_dir, summary)
@@ -255,6 +273,20 @@ def run_extract(
 
     summary.elapsed_s = time.monotonic() - started
     return summary
+
+
+# 410 as well as 404: a site that bothers to say "Gone" is being explicit about it.
+GONE_STATUS_CODES = (404, 410)
+
+
+def _is_gone(row: dict) -> bool:
+    """Whether a fetch row says the page no longer exists upstream.
+
+    Deliberately narrow. Only a fetch that *reached* the server and was told the page is
+    absent counts — a timeout, a connection reset or a 5xx leaves `status_code` unset or
+    non-404, and must never be read as a deletion.
+    """
+    return row["state"] == "fetch_error" and row["status_code"] in GONE_STATUS_CODES
 
 
 def _drop_stale_copy(previous: dict | None, path: Path, url: str, index: Index,
