@@ -18,8 +18,13 @@ data/*
 state/*
 !state/.gitkeep
 
-# Generated change-feed reports (rendered from state/changes.db; not committed)
-reports/
+# Generated change-feed output. The full feed report (~700 KB) and its JSON (~2.5 MB) are
+# regenerable bulk; the digest is small, is the actual product, and is worth diffing week
+# to week — so it is tracked.
+# reports/*
+# !reports/changefeed/
+# reports/changefeed/*
+# !reports/changefeed/digest-*.md
 .claude/
 CLAUDE.md
 

@@ -52,6 +52,32 @@ CREATE TABLE IF NOT EXISTS page_versions (
 );
 CREATE INDEX IF NOT EXISTS idx_pv_url  ON page_versions(url);
 CREATE INDEX IF NOT EXISTS idx_pv_hash ON page_versions(content_hash);
+
+-- Phase 2 output. A finding is one *story*, which is why `urls` is a list: measurement
+-- showed 44 returned items carried only ~25 distinct stories, and "the ai_* functions now
+-- require DBR 15.4+" should be one row citing ten pages, not ten rows.
+--
+-- Stored so a digest renders deterministically and can be re-rendered — shorter, or for a
+-- different audience — without paying for the model again.
+CREATE TABLE IF NOT EXISTS findings (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    before_snapshot INTEGER NOT NULL,
+    after_snapshot  INTEGER NOT NULL,
+    recorded_at     TEXT NOT NULL,
+    impact          TEXT NOT NULL,
+    kind            TEXT,
+    summary         TEXT NOT NULL,
+    detail          TEXT,
+    -- JSON array. A join table would normalise it, but nothing queries findings *by* URL
+    -- — they are read as a set, per snapshot pair, to render one report.
+    urls            TEXT NOT NULL,
+    -- Set when a later run over the same pair replaces this row. Superseded findings are
+    -- kept, not deleted: comparing two runs is the only way to see whether the digest is
+    -- stable, and the first attempt at that comparison failed because the re-run had
+    -- destroyed its predecessor.
+    superseded_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_findings_pair ON findings(before_snapshot, after_snapshot);
 """
 
 # Every column of `page_versions` except the snapshot id, in insert order. A page version
@@ -67,6 +93,13 @@ VERSION_COLUMNS = [
 # never drop or rewrite one. `index.db` can take the shortcut of dropping its table and
 # rebuilding from `data/`; there is nothing to rebuild this from.
 _ADDED_COLUMNS = (("body_fingerprint", "TEXT"),)
+_ADDED_FINDING_COLUMNS = (
+    ("superseded_at", "TEXT"),
+    # Provenance. Without it, findings from different prompts are silently incomparable —
+    # a reworded prompt changes the output and nothing records which one produced what.
+    ("model", "TEXT"),
+    ("prompt_version", "TEXT"),
+)
 
 
 @dataclass(frozen=True)
@@ -103,12 +136,13 @@ class ChangeDB:
         nothing; an older one gets the additions. Deliberately the only kind of migration
         offered here — see `_ADDED_COLUMNS`.
         """
-        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(page_versions)")}
-        for column, ddl in _ADDED_COLUMNS:
-            if cols and column not in cols:
-                self.conn.execute(
-                    f"ALTER TABLE page_versions ADD COLUMN {column} {ddl}")
-                self.conn.commit()
+        for table, additions in (("page_versions", _ADDED_COLUMNS),
+                                 ("findings", _ADDED_FINDING_COLUMNS)):
+            cols = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+            for column, ddl in additions:
+                if cols and column not in cols:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+                    self.conn.commit()
 
     # -- context manager -------------------------------------------------
     def __enter__(self) -> Self:
@@ -209,3 +243,46 @@ class ChangeDB:
     def referenced_hashes(self) -> set[str]:
         """Every content hash any snapshot still points at — `gc`'s keep-set."""
         return {r[0] for r in self.conn.execute("SELECT DISTINCT content_hash FROM page_versions")}
+
+
+def backup(destination: str | Path, *, db_path: str | Path = DEFAULT_DB_PATH,
+           blob_dir: str | Path = "state/changes/blobs") -> tuple[int, int]:
+    """Copy the history to a second location. Returns `(bytes copied, blobs copied)`.
+
+    **This is the only artifact in the project that cannot be rebuilt.** `raw/` costs a
+    crawl, `data/` and `index.db` regenerate from it for free, but the corpus's past exists
+    nowhere else — and it is gitignored, so nothing else is protecting it.
+
+    A file copy, deliberately: the blob store is content-addressed and append-only, so
+    copying it is safe while a run is in progress and re-copying skips what is already
+    there. The database is copied through SQLite's own backup API rather than as a file,
+    because a plain copy of a WAL database mid-write is not guaranteed to be consistent.
+    """
+    import shutil
+    import sqlite3
+
+    destination = Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+
+    source = connect(db_path)
+    try:
+        target = sqlite3.connect(destination / Path(db_path).name)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+    finally:
+        source.close()
+    copied = (destination / Path(db_path).name).stat().st_size
+
+    blobs_out = destination / "blobs"
+    new_blobs = 0
+    for blob in Path(blob_dir).rglob("*.gz"):
+        target_path = blobs_out / blob.parent.name / blob.name
+        if target_path.exists():
+            continue
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(blob, target_path)
+        copied += blob.stat().st_size
+        new_blobs += 1
+    return copied, new_blobs

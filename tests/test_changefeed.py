@@ -652,3 +652,41 @@ def test_marking_gone_is_idempotent_and_refuses_to_resurrect(corpus):
     assert index.mark_gone(record("a").source_url, status_code=404) is False
     assert index.mark_gone("https://docs.databricks.com/aws/en/never-seen") is False
     index.close()
+
+
+def test_the_history_can_be_backed_up_and_is_incremental(tmp_path, corpus):
+    """`changes.db` is the only artifact here that cannot be rebuilt from anything else.
+
+    The blob store is content-addressed and append-only, so a second backup copies only
+    what is new — which is what makes backing up after every run affordable.
+    """
+    from changefeed import db as db_module
+
+    corpus.populate([record("a"), record("b")])
+    corpus.snap()
+
+    out = tmp_path / "backup"
+    first_bytes, first_blobs = db_module.backup(
+        out, db_path=corpus.changes_db, blob_dir=corpus.blob_dir)
+
+    assert first_blobs == 2
+    assert (out / "changes.db").exists()
+
+    second_bytes, second_blobs = db_module.backup(
+        out, db_path=corpus.changes_db, blob_dir=corpus.blob_dir)
+
+    assert second_blobs == 0                    # nothing new to copy
+    assert second_bytes < first_bytes
+
+
+def test_a_backed_up_history_is_readable(tmp_path, corpus):
+    corpus.populate([record("a")])
+    corpus.snap("baseline")
+
+    from changefeed import db as db_module
+    out = tmp_path / "backup"
+    db_module.backup(out, db_path=corpus.changes_db, blob_dir=corpus.blob_dir)
+
+    with ChangeDB(out / "changes.db") as restored:
+        assert [s.label for s in restored.snapshots()] == ["baseline"]
+        assert len(restored.versions(1)) == 1

@@ -528,6 +528,37 @@ that says the output is wrong.
 
 ---
 
+## 19. A scorer that has never failed has not been tested
+
+Six times in one session, a measurement said the model was wrong and the measurement was
+wrong instead: text extraction that discarded a correct answer because `TextBlock` has no
+`type` attribute; a needle asking for "the single change" where eighteen matched; a
+substring too narrow to accept a better answer than the one expected; a recall counter that
+summed every row, so total failure printed `recall 10/10` and exited zero; a URL validator
+that reported `0 real, 49 invented` about paths that were all real; and a resolver that
+rejected 194 of 1,334 legitimate slugs, which then surfaced as 69 "hallucinated" citations
+in a live digest run.
+
+Every one was written from an assumption about the shape of an answer, and shipped without
+ever being run against an input it should reject. **A scorer that has only ever returned
+success has not been tested — it has been observed agreeing with itself.**
+
+Two rules follow, and they are cheap:
+
+- **Give every scorer a known-bad input before quoting its numbers.** A validator that
+  cannot produce a failure cannot produce a meaningful pass.
+- **Print what came back before concluding why.** Of the six, five were diagnosed by
+  guessing and re-guessing. The one where the answer was printed explained itself
+  immediately — the model had named an overview page rather than one of the pages beneath
+  it, which was the better answer.
+
+This is §1 and §11 aimed at our own instruments rather than at the corpus. It is also the
+reason the digest audit exists: the tool that checks findings was itself checked, and its
+first output selected blank lines and `> **Note:**` boilerplate that could neither confirm
+nor refute a claim.
+
+---
+
 ## Checklist: adding a source or an extractor
 
 1. **Probe the live site first.** Content type, validators, whether the HTML contains the

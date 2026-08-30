@@ -186,8 +186,18 @@ def _convert(text: str) -> str:
     out, pos = [], 0
     while (match := _OPEN.search(text, pos)) is not None:
         name = match.group("name")
-        if name not in KNOWN or match.group("void"):
+        if name not in KNOWN:
             out.append(text[pos:match.end()])
+            pos = match.end()
+            continue
+
+        if match.group("void"):
+            # `<Card title="X" href="Z" />` — a component with no body. Skipping these
+            # left every link in them inert, which is the exact failure this module was
+            # written to fix; the release-notes index published ten of them and the
+            # `mdx_converted` invariant caught it. An empty body is a body.
+            out.append(text[pos:match.start()])
+            out.append(_render(name, _attrs(match.group("attrs")), ""))
             pos = match.end()
             continue
 

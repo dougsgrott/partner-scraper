@@ -35,7 +35,7 @@ from .base import (
 )
 
 NAME = "passthrough_md"
-VERSION = "4"   # v3: absolute links + a title heading; v4: MDX components → Markdown
+VERSION = "5"   # v4: MDX components → Markdown; v5: self-closing components too
 
 _FRONTMATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 _FENCE_LANG = re.compile(r"^```([\w+-]+)", re.MULTILINE)
