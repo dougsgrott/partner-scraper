@@ -15,6 +15,7 @@ them.
 from __future__ import annotations
 
 import difflib
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -37,6 +38,11 @@ METADATA_FIELDS = ("title", "description", "updated_date", "category")
 MAX_DIFF_LINES = 400
 MAX_DIFF_CHARS = 40_000
 
+# Above this, `difflib` stops being viable: it is superlinear, and aligning two 6 MB
+# machine-generated API pages takes minutes for a diff nobody will read line by line.
+# Past it the report falls back to an unaligned changed-lines listing, and says so.
+MAX_ALIGNED_CHARS = 400_000
+
 
 @dataclass(frozen=True)
 class PageChange:
@@ -48,6 +54,10 @@ class PageChange:
     weight: str
     before: dict | None = None
     after: dict | None = None
+    # Why it ranked where it did, and how far up the feed it belongs. Empty for kinds
+    # with no two bodies to compare (added, removed, moved, metadata).
+    signals: dict = field(default_factory=dict)
+    severity: float = 0.0
 
     @property
     def current(self) -> dict:
@@ -97,10 +107,18 @@ class DiffResult:
         return {kind: len(self.by_kind(kind)) for kind in KINDS}
 
     def feed(self) -> list[PageChange]:
-        """What a human should actually read, worst-first within a stable ordering."""
+        """What a human should actually read, most urgent first.
+
+        Ordered by severity, not alphabetically. With ~680 substantive changes in a single
+        run this is the only reduction the deterministic layer can honestly offer: no
+        threshold turns that into a readable handful, because measurement showed most of
+        them really are substantive. What it can do is put the deprecations and the
+        changed limits above the reworded paragraphs. The url tiebreak keeps the order
+        reproducible between runs.
+        """
         return sorted(
             (c for c in self.changes if c.is_feed_worthy),
-            key=lambda c: (c.company, c.category, c.url),
+            key=lambda c: (-c.severity, c.company, c.url),
         )
 
     def suppressed(self) -> list[PageChange]:
@@ -108,7 +126,7 @@ class DiffResult:
         return sorted(
             (c for c in self.changes
              if c.cause == classify.CONTENT and c.weight != classify.SUBSTANTIVE),
-            key=lambda c: (c.company, c.url),
+            key=lambda c: (-c.severity, c.company, c.url),
         )
 
     @property
@@ -161,8 +179,9 @@ def _classify_page(
 
     if old["content_hash"] != new["content_hash"]:
         cause = classify.attribute(old, new)
-        weight = _weigh_bodies(url, old, new, blob_dir, result)
-        return PageChange(url, MODIFIED, cause, weight, old, new)
+        weight, counts = _weigh_bodies(url, old, new, blob_dir, result)
+        return PageChange(url, MODIFIED, cause, weight, old, new,
+                          signals=counts, severity=classify.severity(counts))
 
     # Same body from here on: the page did not change, its filing or its metadata did.
     if old.get("file_path") != new.get("file_path"):
@@ -183,13 +202,14 @@ def _weigh_bodies(
     new: dict,
     blob_dir: Path | None,
     result: DiffResult,
-) -> str:
-    """Rank a modification, recording pages whose stored bodies could not be read."""
+) -> tuple[str, dict]:
+    """Rank a modification and return the evidence, recording unreadable bodies."""
     before_body = blobs.read_or_none(old["content_hash"], blob_dir)
     after_body = blobs.read_or_none(new["content_hash"], blob_dir)
     if before_body is None or after_body is None:
         result.unreadable.append(url)
-    return classify.weigh(before_body, after_body)
+        return classify.SUBSTANTIVE, {}
+    return classify.weigh(before_body, after_body), classify.signals(before_body, after_body)
 
 
 def render_diff(
@@ -211,6 +231,9 @@ def render_diff(
     if before is None or after is None:
         return ""
 
+    if max(len(before), len(after)) > MAX_ALIGNED_CHARS:
+        return _unaligned(change, before, after, max_lines)
+
     lines = list(difflib.unified_diff(
         before.splitlines(),
         after.splitlines(),
@@ -229,3 +252,24 @@ def render_diff(
     if len(text) > max_chars:
         text = text[:max_chars] + f"\n... diff truncated at {max_chars} characters"
     return text
+
+
+def _unaligned(change: PageChange, before: str, after: str, max_lines: int) -> str:
+    """A changed-lines listing for pages too large to align.
+
+    Not a unified diff and shaped so it cannot be mistaken for one: no hunk headers, and a
+    leading note. The lines are real and correctly attributed to added or removed; what is
+    missing is the pairing between them and the surrounding context.
+    """
+    removed = Counter(before.splitlines()) - Counter(after.splitlines())
+    added = Counter(after.splitlines()) - Counter(before.splitlines())
+    budget = max(2, max_lines // 2)
+    out = [
+        f"# {change.url}",
+        (f"# {len(before):,} -> {len(after):,} characters — too large to align, so these "
+         f"are changed lines without context, not a diff."),
+        f"# {sum(removed.values()):,} removed, {sum(added.values()):,} added.",
+    ]
+    out += [f"-{line}" for line in list(removed.elements())[:budget]]
+    out += [f"+{line}" for line in list(added.elements())[:budget]]
+    return "\n".join(out)

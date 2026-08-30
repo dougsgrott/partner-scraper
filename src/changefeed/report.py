@@ -18,7 +18,7 @@ Two rules the layout follows:
 from __future__ import annotations
 
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -83,10 +83,29 @@ _CAUSE_BLURB = {
 }
 
 
+# Order signals are listed in, strongest first, so the reason for a ranking reads the same
+# way every time.
+_SIGNAL_ORDER = ("status", "code", "headings", "numbers", "links")
+
+
+def _why(change: PageChange) -> str:
+    """The evidence behind a severity score, as a short phrase.
+
+    Shown because a ranked feed a reader cannot interrogate is a ranked feed they will not
+    trust — "status ×4, code ×2" says why a change is at the top far better than a number.
+    """
+    parts = [f"{name} ×{change.signals[name]}"
+             for name in _SIGNAL_ORDER if change.signals.get(name)]
+    return ", ".join(parts) if parts else "prose only"
+
+
 def _entry(change: PageChange, *, blob_dir: Path | None, context: int) -> str:
     url = (change.after or change.before or {}).get("url") or change.url
     delta = f"{change.delta_chars:+,} chars" if change.delta_chars else "same length"
-    lines = [f"#### {change.title}", "", f"`{change.kind}` · {delta} · <{url}>"]
+    head = f"`{change.kind}` · {change.company} · {change.category} · {delta}"
+    if change.kind == "modified":
+        head += f" · severity {change.severity:.1f} ({_why(change)})"
+    lines = [f"#### {change.title}", "", f"{head} · <{url}>"]
 
     if change.kind == "modified":
         body = render_diff(change, blob_dir=blob_dir, context=context)
@@ -153,14 +172,16 @@ def render(
     if not feed:
         out += ["_No substantive vendor changes in this window._", ""]
 
-    grouped: dict[tuple[str, str], list[PageChange]] = defaultdict(list)
+    if feed:
+        out += [
+            ("Ordered by severity, most urgent first — status and policy language, then "
+             "changed code, headings, numbers and links. Size is deliberately not part of "
+             "the score: the largest change in a run is usually a machine-generated "
+             "reference page, not the one that matters."),
+            "",
+        ]
     for change in shown:
-        grouped[(change.company, change.category)].append(change)
-
-    for (company, category), changes in grouped.items():
-        out += [f"### {company} · {category}", ""]
-        for change in changes:
-            out += [_entry(change, blob_dir=blob_dir, context=context), ""]
+        out += [_entry(change, blob_dir=blob_dir, context=context), ""]
 
     if expand is not None and len(feed) > expand:
         out += [(f"_{len(feed) - expand} further substantive changes not expanded; "
@@ -177,7 +198,7 @@ def render(
              "ranking is a heuristic, and a feed that hides what it discarded cannot be "
              "audited."),
             "",
-            *(f"- `{c.weight}` [{c.title}]({c.url})" for c in suppressed),
+            *(f"- `{c.weight}` [{c.title}]({c.url}) — {_why(c)}" for c in suppressed),
             "",
         ]
 
@@ -241,6 +262,8 @@ def to_json(result: DiffResult) -> dict:
                 "category": c.category,
                 "title": c.title,
                 "delta_chars": c.delta_chars,
+                "severity": round(c.severity, 3),
+                "signals": c.signals,
                 "before": c.before,
                 "after": c.after,
             }

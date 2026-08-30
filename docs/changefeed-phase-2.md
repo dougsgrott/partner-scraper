@@ -1,0 +1,299 @@
+# Phase 2: the change digest — decision record
+
+> Decided 2026-08-29, against measurements from `reports/changefeed/0001..0002.json`
+> (snapshots #1 → #2, 11 days). Re-measure before re-litigating; the numbers are what the
+> decision rests on, and they are cheap to recompute.
+
+## Decision
+
+**Compress every change deterministically, then hand the whole run to one Claude Agent SDK
+session.** No batching, no pre-filter, no clustering pass.
+
+The session receives all ~1,200 compressed change records at once, plus read-only tools to
+open the full diff for anything it wants to inspect, and reports through a `record_finding`
+tool so the digest is rendered from structured rows rather than parsed out of prose.
+
+## The numbers it rests on
+
+| | measured |
+|---|---|
+| changes reaching a model per run | **1,182** (11 days) ≈ 752/week |
+| every diff sent whole | 6.1M tokens · ~$30/run input |
+| **each change compressed to one line** | **92k tokens · ~$0.50/run input** |
+| mean compressed record | 273 characters |
+| categories spanned | 78, of which 26 carry ≥10 changes |
+| exact-duplicate change groups | 87 pages in 24 groups, largest 15 |
+| severity carried by the top 25 / 100 | 8.4% / 26.6% |
+
+A compressed record looks like this — identity, evidence, and the two most informative
+changed lines, preferring lines that carry status language:
+
+```
+databricks/admin MOD sev1.4 [s1,h2,n4,l3] admin/account-settings/custom-url ::
+  - Your account must not use [Chrome-managed passkeys](…) | + ## What changes when you use a custom URL
+```
+
+**The whole run fits in one context window with room to spare.** That single fact decided
+everything below.
+
+## Why not the three options this replaced
+
+The original framing assumed the model had to process a run piecemeal, because a run was too
+big to see at once. It is not. Each rejected option was designed around a constraint that
+does not exist, and each pays a real cost for it.
+
+### A — batched triage (~25 changes per session)
+
+**Rejected: batching destroys the capability it was chosen for.** A existed for cross-page
+synthesis, but a 25-item batch cannot see that 452 of 1,182 changes are one API-reference
+regeneration, or that `api/beta/files` and `api/beta/skills` moving to `api/*` are one story
+about promoting APIs out of beta. Whole-run context can.
+
+It also costs ~47 sessions per run instead of one, and its batches are arbitrary slices of a
+long tail — see the severity note below.
+
+### B — two-pass, cheap filter then deep agent
+
+**Rejected: it opens a silent false-negative path for no benefit.** B's premise was that
+volume made a pre-filter necessary. At 92k tokens it is not. What it would add is a
+classification pass that can drop a breaking change before any careful reader sees it —
+invisible under-reporting, the one failure mode a change feed cannot recover from, requiring
+a standing sampling audit to trust. Paying that price to solve a solved problem is a bad
+trade.
+
+### C — deterministic clustering before the model
+
+**Rejected as a primary mechanism; the evidence got firmer, not weaker.** Measured directly:
+only **87 pages across 24 groups** share an identical changed-line set, largest group 15. That
+collapses about 5% of a run. Earlier link-move analysis agreed — the largest single path move
+(`/docs/en/about-claude/models` → `/docs/en/models`) touched 29 pages, and only 2% of
+Anthropic pages changed *purely* by link rewriting.
+
+Clustering by exact match is brittle in the way that matters: it groups pages that changed
+*identically*, not pages that changed *for the same reason*. Reading across the run is what
+finds the latter, and that is what the model is for.
+
+### And why not "just show the top 30"
+
+Severity ordering ([issue 02](../issue/changefeed-phase-2-readiness/02-rework-change-weighting.md))
+made the feed readable, but it cannot substitute for synthesis. The distribution is flat: the
+top 25 carries 8.4% of total severity and the top 100 carries 26.6%. There is no small head
+holding most of the value, so truncation discards real content rather than noise.
+
+## The design
+
+**Stage 1 — compression (no model).** Every change becomes one record: company, category,
+kind, severity, signal counts, path, and a bounded excerpt of the changed lines, ordered to
+put status language first. Nothing is filtered. The false-negative path never opens, because
+every change is present in the prompt.
+
+**Stage 2 — one session (Claude Agent SDK).** Input is the full compressed run. Tools, all
+read-only:
+
+| tool | purpose |
+|---|---|
+| `get_diff(url)` | the full unified diff for one change |
+| `read_page(url)` | the current body from `data/` |
+| `inbound_links(url)` | who points at this page — the impact signal |
+| `record_finding(urls, ...)` | the agent's **output channel**: structured rows, not prose. Takes a **list** of URLs so one finding covers a story spanning many pages — measurement showed 44 returned items carried only ~25 distinct stories |
+
+This is where the Agent SDK earns its place over a single API call. The model sees everything
+cheaply, then *chooses* the twenty diffs worth opening in full. That is a tool loop, not a
+prompt.
+
+**Output.** `record_finding` rows render deterministically into the digest, so a report can be
+re-rendered — different audience, different length — without re-running the model. Note the
+Python `@tool` decorator forwards only `content` and `is_error`; `structuredContent` is
+TypeScript-only, so the handler writes the row itself.
+
+**Validate tool arguments against the run.** A schema can guarantee a finding is well-formed;
+only a membership test shows it is about something that actually changed. The handler should
+reject any URL not in the run's change set and return `is_error: True`, so the model sees the
+rejection and corrects itself rather than silently citing a page nobody touched. Three runs
+produced zero invented paths, so this is a guard rail rather than an observed problem — but
+it costs nothing and turns a silent corruption into a visible, self-correcting failure. Do
+**not** enum the URLs in the schema: 1,300 of them would add tens of thousands of tokens to
+every turn and duplicate the input.
+
+## Cost
+
+~92k input tokens per run, plus drill-down tool calls and output. At Claude Opus 5 rates that
+is roughly **$0.50–$3 per run** all-in. Weekly cadence puts it in single-digit dollars a
+month. Cost is not a design constraint here and should not be treated as one.
+
+For contrast, sending full diffs would be ~6.1M input tokens (~$30/run), and option A's ~47
+sessions would exceed that while seeing less.
+
+## Build status (2026-08-30)
+
+**Stage 1 is built and verified against real data. The recall risk is measured and does not
+materialise.** Stage 2 — the session that consumes the compressed run — is not built.
+
+```
+src/changefeed/digest/
+  compress.py          deterministic — no model, no SDK, no network
+scripts/digest.py      `compress` subcommand: size what a session would read
+scripts/probe_recall.py  the recall probe — run; result below
+docs/changefeed-needles.yaml   ground truth: 10 needles verified by reading
+```
+
+Measured by the real code rather than a prototype, on snapshots #1 → #2:
+
+| | |
+|---|---|
+| changes compressed | **1,334** — every change, nothing dropped |
+| size | 370,872 chars ≈ **105k tokens** |
+| mean record | 278 characters |
+| time | ~14 s |
+
+105k rather than the 92k first estimated, because this includes the `moved`, `metadata`,
+`low` and `noise` entries too. Those get the short form — one line, no excerpt — so the
+no-filter promise costs about 13k tokens. Worth it.
+
+**A defect that reading the output caught.** The first excerpts showed the removed and added
+lines with no marker of which was which, so `tool-runner`'s record read *"the TypeScript and
+Ruby tool runners support automatic compaction"* next to the same sentence including Python —
+and nothing said which was current. A model could have drawn the opposite conclusion. Lines
+are now prefixed `-` and `+`, with a test.
+
+## The risk, and how it gets tested
+
+**Not cost, and not context limits — synthesis recall over a long flat list.** 92k tokens is
+modest for a 1M-context model, but a list of 1,182 broadly similar items is exactly the shape
+where things get dropped, and this feed's value depends on not dropping the one deprecation
+that matters.
+
+Test it rather than assume it. These changes are already verified by reading and should each
+appear in a digest of the #1 → #2 run:
+
+| | |
+|---|---|
+| `api/beta-headers` | `files-api-2025-04-14` → `context-management-2025-06-27` |
+| `tool-use/tool-runner` | **Python dropped** from the runtimes with automatic compaction |
+| `foundation-model-overview` | a region's models change `databricks-gpt-5-5-pro` → `databricks-grok-4-6` |
+| `about-claude/model-deprecations` | the deprecations page itself |
+| `sql-ref-syntax-ddl-create-streaming-table` | `pipelines.channel` **no longer supported** |
+| `sql/.../ip_network` | the function left Beta |
+
+The needles live in [`changefeed-needles.yaml`](changefeed-needles.yaml) with their rank in
+the run, because a recall figure that does not say *where* the needles were is meaningless.
+They are well spread — ranks **1, 2, 3, 5, 6, 36, 67, 82, 153 and 1113 of 1,116**. The last
+is `access-transparency`, the known false negative from issue 02: a product rename with no
+status word, number, link, code or heading change, which severity scores 0.00 and puts near
+the bottom of the run. If the digest finds that, the long-context worry is settled.
+
+`scripts/probe_recall.py` runs it, in two modes that are deliberately not the same test:
+
+- **`locate`** asks for each needle by description. The *easy* test — being told what to look
+  for is far easier than noticing it unprompted, so passing proves little. Failing is
+  decisive: no prompt fixes it, and the fallback becomes mandatory.
+- **`digest`** asks for the most important changes with no hint, then checks needle coverage.
+  The test that counts.
+
+`--dry-run` shows what would be sent and its size without calling anything. The probe refuses
+to run against any snapshot pair other than the one the needles were read from — pointed
+elsewhere it would report ten misses that look like catastrophic failure and are not.
+
+### Result (2026-08-30): no long-context failure
+
+Measured, not assumed. Roughly nine calls, ~$5.
+
+| mode | result | what it means |
+|---|---|---|
+| `digest` — asked for the top 30, no hint | **6/10** | agreement with a human's top-30, not recall |
+| `locate` — asked to find each of the four `digest` misses | **4/4** | **recall** |
+
+**Every needle is reachable, including rank 1113 of 1,116** — `access-transparency`, the
+product rename with no structural signal that severity scores 0.00 and puts near the bottom
+of the run. The model found it in a 105k-token prompt. The "lost in the middle" worry does
+not apply here, and the hierarchical fallback below is not needed.
+
+The four `digest` misses are judgement disagreements, and two are defensible: a function
+*leaving* Beta is good news rather than something "likely to break", and a product rename is
+not a breaking change. The other two — a region swapping `databricks-gpt-5-5-pro` for
+`databricks-grok-4-6`, and `vector_search` narrowing its availability — are prompt-tuning
+work, not architecture.
+
+**Three apparent failures were defects in the test, none in the model.** Worth recording,
+because the first reading of each was "the model got it wrong":
+
+1. A `TextBlock` in claude-agent-sdk 0.2.148 has no `type` attribute, so duck-typed
+   extraction discarded a correct answer and reported zero lines. Use `isinstance`.
+2. The `ip_network` needle asked for "the single change" when **18 pages** in the run had a
+   Beta admonition removed, six of them byte-identical. Any answer was correct.
+3. Broadened to the function pages, it still missed — because the model named the IP
+   functions *overview* page, a better answer than the needle anticipated. `url_contains`
+   now accepts a list.
+
+A fourth bug made this worse: the probe's own recall counter summed every row instead of the
+matching ones, so a total failure printed `recall 10/10` and exited 0.
+
+### Precision and stability (2026-08-30): three runs at top-50
+
+Recall against "every important change" is **structurally impossible**, and measuring it was
+the wrong goal. A labelled sample of 50 changes drawn at random from the 1,151 eligible found
+**14 genuinely important (28%)**, which extrapolates to ~322 in the run. A digest of 50 can
+cover at most 16% of that by construction. So the question is not how many important changes
+it finds — it is whether the 50 it picks are the right ones.
+
+Three runs, `--top 50`, on the identical input:
+
+| | result |
+|---|---|
+| stability (Jaccard across 3 runs) | **0.81** — 44 of 54 items in all three |
+| hallucinated paths | **0** of 147 returned |
+| duplicate paths | **0** |
+| precision, judging the 44 stable items by hand | **44/44** |
+
+Every one of the 44 is a genuine capability, availability, deprecation, or requirement
+change: the Supervisor API reaching end of life on 2026-09-30, legacy stable IPs
+decommissioned, `output_format` moving to `output_config.format`, ten `ai_*` functions
+gaining a Databricks Runtime floor, `pipelines.channel` no longer supported. **Not one is
+schema regeneration, casing, or boilerplate** — in a population where 72% is exactly that.
+Random selection would score ~28%.
+
+**The weakness is redundancy, not accuracy.** Those 44 slots carry only about **25 distinct
+stories**. Ten went to the same runtime-version requirement across `ai_*` functions; four to
+`pipelines.channel`; three to the Supervisor API deprecation; two each to the legacy-IP
+decommission and the AI Gateway entitlement change.
+
+That is an artifact of the probe's output format, not of the approach: it asked for a list of
+paths, which forces one line per page. It has a direct consequence for the design —
+**`record_finding` must accept a list of URLs, not one**, so a single finding can say "the
+`ai_*` functions now require DBR 15.4+" and cite ten pages. Without that, a third of the
+digest is repetition.
+
+**Fallback if recall is poor:** a hierarchical reduce — synthesize per category, then across
+the summaries. Only 26 categories carry ≥10 changes, so that is a cheap second stage rather
+than a redesign. Do not build it pre-emptively.
+
+## What would change this decision
+
+- **A run an order of magnitude larger.** ~12,000 changes would be ~900k compressed tokens
+  and the single-session design stops fitting. The observed range does not approach this: a
+  quiet Anthropic week drops a run to ~450 changes (~35k tokens), and a launch week twice as
+  heavy as the one measured gives ~2,400 (~185k). Both are one session, which is why
+  [issue 04](../issue/changefeed-phase-2-readiness/04-quiet-week-measurement.md) no longer
+  blocks this decision.
+- **Measured recall failure** on the seeded changes above, unfixed by hierarchical reduce.
+- **A need for per-page depth** rather than a digest — a different product, and it would
+  revive A.
+
+## What phase 2 does not do
+
+It does not decide what is important *to this team*. The digest reports what the vendors
+changed; mapping that onto your product surface is
+[`kb-application.md`](kb-application.md) item 22, and needs an input this corpus does not
+contain.
+
+One thing the digest should say once rather than 452 times: **the Anthropic API reference was
+regenerated.** That category is 38% of the run at middling severity and appears nowhere in the
+top 100 — the ranking already handles it correctly, but a reader should be told it happened
+and then left alone about it.
+
+## See also
+
+- [`changefeed.md`](changefeed.md) — what phase 1 built, and the measured churn
+- [`kb-application.md`](kb-application.md) — the catalogue this application comes from
+- [`../issue/changefeed-phase-2-readiness/`](../issue/changefeed-phase-2-readiness/README.md)
+  — the issue set that produced these numbers

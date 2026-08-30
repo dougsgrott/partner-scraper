@@ -276,6 +276,29 @@ Every regression test in `tests/` is tied to a defect that actually occurred aga
 data — that is what keeps them honest. When you fix something, write the test that
 would have caught it, and say in the docstring what went wrong.
 
+### 11b. A *failing* test is not evidence either
+
+§11 says a passing test proves nothing if the test is wrong. The recall probe for the change
+digest made the mirror-image case, three times in a row, and each time the first reading was
+"the model got this wrong":
+
+1. The probe reported zero lines returned. The model had answered correctly; a `TextBlock`
+   in the installed SDK has no `type` attribute, so duck-typed extraction threw the answer
+   away. **Use `isinstance` where the documented examples do** — inferring an object's shape
+   from a docs table is a guess.
+2. A needle asked for "the single change" where the function left Beta. Eighteen pages in
+   that run had a Beta admonition removed, six byte-identical. Every answer was correct.
+3. Broadened to those six, it still missed — the model had named the *overview* page for
+   that function family, a better answer than the needle imagined.
+
+Underneath all three sat a fourth: the probe's recall counter summed every row rather than
+the matching ones, so a total failure printed `recall 10/10` and exited zero. A metric that
+cannot report failure is worse than no metric, because it is trusted.
+
+The rule that would have saved the time: **print what came back before concluding why.** Two
+of the three were diagnosed by guessing, and only the third — where the answer was finally
+printed — explained itself immediately.
+
 ---
 
 ## 12. What the two-stage design actually bought
@@ -328,6 +351,28 @@ the archive pointer rather than overwriting it, a `fetch_error` never destroys t
 good copy, and a `duplicate` is recorded as *settled* rather than failed, because there is
 nothing to retry. **"I could not get it" and "it does not exist" must never share a code
 path.**
+
+### 14b. The same care that preserves an archive can hide a deletion
+
+That last property had a consequence nobody noticed for months. Because `fetch_error`
+never destroys the last good copy, a page that 404s upstream keeps its archived bytes, keeps
+its `ok` index row, and is skipped by the extract loop before it is even counted as a
+candidate. It therefore reports as **unchanged, forever**. The first change-feed run made
+this concrete: one Databricks page had 404'd, and the feed said nothing at all — while the
+page's index row silently aged, missing every pipeline update including a new column added
+five days later.
+
+Preserving the archive was right. Treating the *index row* as equally untouchable was not.
+The fix keeps the conservatism where it belongs and adds the missing distinction: a fetch
+that reached the server and was told 404 or 410 marks the page `gone`, while a timeout, a
+reset or a 5xx still changes nothing. Snapshots capture `ok` rows, so a gone page leaves the
+next snapshot and the feed reports it as `removed` — which is what a deprecation watch needs
+and what no other part of the pipeline produced.
+
+The file stays on disk deliberately: deleting a page on the strength of one HTTP response
+is the destructive inference this whole section argues against. The generalisation is that
+**a rule protecting one artifact should not silently be extended to another** — the archive
+and the manifest answer different questions and deserve different caution.
 
 ---
 
@@ -410,17 +455,76 @@ the same timestamp across unrelated pages — it is the deploy time, which is wh
 changed all 5,743 pages' bytes while leaving their content alone (§10). A validator that is
 present is not a validator that means what you want.
 
-### 17b. The fingerprint trap now has a consumer
+### 17b. One hash cannot answer two questions
 
-`output_fingerprint` has been widened three times after silently under-reporting: an
-unbumped `VERSION`, then the writer, then imported modules. The change feed is the first
-thing that *depends* on it being right, and it fails loudly rather than quietly — a page
-whose fingerprint moved is reported as our churn, not the vendor's, and if the fingerprint
-is missing entirely the change is `unknown` rather than being folded into the feed.
+`output_fingerprint` was widened three times after silently under-reporting: an unbumped
+`VERSION`, then the writer, then imported modules. Each fix made it cover more, and each
+was right for the question it was built to answer — *should this page be re-extracted?*
+Erring wide is free there, because re-extracting an unchanged page rewrites nothing.
 
-The regression test is the MDX pass itself: three pages whose content hash and fingerprint
-both move must yield zero vendor changes. Without attribution, the run that converted MDX
-would have reported 566 upstream edits that never happened.
+Then the change feed asked it a second question — *did **we** change this page, or did the
+vendor?* — and the fourth failure arrived, in the opposite direction from the first three.
+Commit `8b3f999` changed one line of `writer.py`, which can only alter the frontmatter, and
+widened the fingerprint formula itself. Databricks pages had last been extracted before
+that commit, so re-extraction produced a different hash from an identical body pipeline, and
+**594 genuine vendor changes were reported as our own churn.**
+
+Two distinct lessons:
+
+- **Erring wide is not free once a second consumer exists.** For re-extraction a false
+  positive costs CPU; for attribution it costs the truth. The fix was to split the hash —
+  `body_fingerprint` covers the extractor and its imports only, and anything added to it
+  must be able to change the body.
+- **A stored derived value carries its formula with it.** Changing how a fingerprint is
+  computed invalidates every stored comparison at once, silently, for every page extracted
+  under the old formula. The value looked like data; it was really data *plus* an
+  unversioned function.
+
+The regression tests are both real events: three pages whose content hash and body
+fingerprint both move must yield zero vendor changes (the MDX pass), and a page whose
+`output_fingerprint` moved while `body_fingerprint` held must stay attributed to the vendor
+(this bug).
+
+---
+
+## 18. Measure the thing before believing it is broken
+
+The change feed's first run ranked 97% of changes `substantive`, and the obvious reading was
+that the ranking was broken. An issue was written on that premise: the heuristic filters
+nothing, rework it.
+
+Measuring first would have been cheaper than the rework. 84% of changes genuinely move a
+link, a heading, a code block or a number, and the median change rewrites 19% of its page.
+Reading a stratified sample of 64 settled it: among the cases that *looked* least significant
+were a SQL property becoming "no longer supported", a function leaving Beta, and a model
+dropped from a supported-model table. Five of eight were worth reading. **The classifier was
+roughly right; the corpus really does change that heavily.**
+
+The actual defects were different, and only visible once the premise was dropped:
+
+- **The feed was sorted alphabetically.** With ~680 substantive changes, that buries a
+  deprecation among hundreds of routine edits. Ordering, not filtering, was the missing
+  capability — and no honest threshold could have substituted for it.
+- **The strongest signal was absent.** Status and policy language — *deprecated, no longer,
+  not supported, beta, generally available* — is what separates a breaking change from a
+  reworded paragraph, and no structural comparison can see it. Reading the sample is what
+  surfaced it; no amount of tuning the existing signals would have.
+
+Two smaller lessons came with it:
+
+- **A metric can be trivially satisfiable.** The issue set "recall of the worth-reading class
+  ≥ 0.95" as its acceptance criterion. That is maximised by calling everything substantive —
+  exactly what the classifier already did. It measured nothing. The criterion that meant
+  something was ordering quality, checked by reading the top of the feed.
+- **Volume is not severity.** Scoring by raw signal counts put regenerated API reference
+  pages on top: one matched the status pattern on 11,181 lines purely because it is
+  enormous. Scoring by *density* — the share of changed lines carrying a signal — surfaced a
+  swapped beta header and the Python tool runner losing automatic compaction instead. Any
+  score over a corpus with a 4.77 MB page and a 300-byte page needs to be scale-invariant.
+
+The pattern generalises past this feature: §1 says read the output rather than the summary,
+and this is the same rule aimed one level earlier — read the output before writing the issue
+that says the output is wrong.
 
 ---
 

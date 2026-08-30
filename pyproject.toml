@@ -18,6 +18,12 @@ dependencies = [
 # Not needed to build the corpus itself.
 enrich = ["anthropic>=0.40"]
 
+# The change digest, phase 2 (docs/changefeed-phase-2.md). Optional on purpose: the
+# deterministic half of the change feed — snapshots, diffs, ranking, and the compression
+# that feeds a session — has no dependencies at all and must stay runnable without this.
+# The SDK authenticates through the installed Claude Code CLI, so no API key is required.
+digest = ["claude-agent-sdk>=0.1"]
+
 [project.scripts]
 scraper = "scraper.cli:main"
 

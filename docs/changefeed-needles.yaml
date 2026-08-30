@@ -1,0 +1,94 @@
+# Recall ground truth for the change digest. See docs/changefeed-phase-2.md.
+#
+# The risk phase 2 carries is not cost or context limits — it is whether a model reading
+# ~1,300 broadly similar lines surfaces the handful that matter, or loses them in the
+# middle. These are the needles: changes in the #1 -> #2 run that were verified BY READING
+# the diffs, before any model saw them.
+#
+# `rank` is the change's position in that run when ordered by severity, out of 1,116
+# modifications. It is recorded because a needle at rank 1 and a needle at rank 1,113 test
+# very different things, and a recall figure that does not say which is meaningless.
+#
+# `url_contains` is a substring match, matching the idiom in validation-questions.yaml, and
+# may be a list when a change can legitimately be named at more than one level (an overview
+# page or one of the pages it covers). A needle counts as surfaced when a finding names a
+# URL containing any of them.
+
+# The pair these needles describe. Running them against any other snapshot pair reports
+# ten misses and looks like catastrophic failure when it is simply the wrong data, so the
+# probe checks this and refuses rather than reporting a number that means nothing.
+snapshots:
+  before: 1
+  after: 2
+
+needles:
+  # --- top of the feed: should be trivially found ------------------------
+  - url_contains: "api/beta-headers"
+    rank: 1
+    what: "beta header files-api-2025-04-14 replaced by context-management-2025-06-27"
+    why: "a header an integration pins; changing it breaks requests silently"
+
+  - url_contains: "foundation-model-overview"
+    rank: 2
+    what: "a region's supported models change databricks-gpt-5-5-pro -> databricks-grok-4-6"
+    why: "model availability per region — kb-application item 17, model and pricing drift"
+
+  - url_contains: "tool-use/tool-runner"
+    rank: 3
+    what: "Python dropped from the runtimes with automatic compaction"
+    why: "a capability removed from one language only; easy to miss, expensive to hit"
+
+  - url_contains: "about-claude/model-deprecations"
+    rank: 5
+    what: "the deprecations page itself changed"
+    why: "if the digest misses the deprecations page, it misses the point"
+
+  - url_contains: "build-with-claude/fast-mode"
+    rank: 6
+    what: "fast mode availability across models"
+    why: "availability language, the highest-weighted signal"
+
+  # --- middle of the feed: the real test --------------------------------
+  - url_contains: "functions/vector_search"
+    rank: 36
+    what: "availability narrowed — 'not available on Pro or Classic' became 'classic' only"
+    why: "a quiet narrowing of where a function works"
+
+  - url_contains: "mid-conversation-system-messages"
+    rank: 67
+    what: "Claude Sonnet 5 dropped from the supported-model list; 'generally available' removed"
+    why: "a model losing support, with no structural signal at all"
+
+  - url_contains: "sql-ref-syntax-ddl-create-streaming-table"
+    rank: 82
+    what: "the pipelines.channel property is no longer supported for standalone streaming tables"
+    why: "an outright breaking change to published SQL syntax"
+
+  - url_contains:
+      - "sql-ref-ip-functions"          # the overview page — the best answer
+      - "language-manual/functions/ip_" # or any individual function page
+    rank: 153
+    what: >
+      the IP address functions (ip_network, ip_cidr and siblings) left Beta — the
+      "This feature is in Beta" admonition was removed from all of them
+    why: >
+      A GA transition visible only as a removed callout. Originally written as
+      "functions/ip_network — the function left Beta", which was a defective needle: 18
+      pages in this run had a Beta admonition removed, six of them IP functions with
+      byte-identical changes, so "find the single change that matches" had 18 correct
+      answers. The probe scored it a miss and the model was right. Broadening it to the
+      function pages still missed, because the model named the IP functions *overview*
+      page — a better answer than the needle expected. `url_contains` now accepts a list.
+      Three scoring failures on one needle, none of them the model's: a needle must
+      identify one thing, or say explicitly what else counts.
+
+  # --- the hard case ----------------------------------------------------
+  - url_contains: "manage-claude/access-transparency"
+    rank: 1113
+    what: "'Anthropic Workbench' renamed to 'Playground (Claude Console)'"
+    why: >
+      A product rename with no status word, number, link, code or heading change — invisible
+      to every deterministic signal, so severity ranks it 0.00 and it sits near the bottom of
+      the run. It is the known false negative recorded in issue 02. If the digest finds this,
+      the long-context worry is settled; if it does not, that is a measured limit rather than
+      a surprise.

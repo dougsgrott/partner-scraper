@@ -325,6 +325,68 @@ def test_every_extractor_has_a_fingerprint():
     assert len(set(prints.values())) == len(prints), "each module must hash to its own value"
 
 
+def test_every_extractor_has_a_body_fingerprint():
+    from scraper.extract import registry
+
+    prints = {name: registry.body_fingerprint(name) for name in registry.implemented()}
+    assert all(prints.values()), prints
+    assert len(set(prints.values())) == len(prints), "each module must hash to its own value"
+
+
+def test_the_two_fingerprints_are_not_the_same_hash():
+    """`body_fingerprint` must cover strictly less than `output_fingerprint`.
+
+    If they ever coincide, the writer and layout have crept back into the attribution
+    input, which is exactly the bug the split exists to fix: a one-line `writer.py` edit
+    reported 594 genuine vendor changes as our own churn.
+    """
+    from scraper.extract import registry
+
+    for name in registry.implemented():
+        assert registry.body_fingerprint(name) != registry.output_fingerprint(name), name
+
+
+def test_fingerprints_are_stable_across_processes():
+    """A set iterates in a process-dependent order; an unstable hash would attribute
+    every page to us on every run. Both fingerprints sort before hashing — assert it in a
+    *separate interpreter*, since within one process the ordering happens to be fixed."""
+    import subprocess
+    import sys
+
+    code = (
+        "from scraper.extract import registry;"
+        "print(registry.body_fingerprint('docusaurus'), registry.output_fingerprint('docusaurus'))"
+    )
+    runs = {
+        subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                       check=True).stdout.strip()
+        for _ in range(3)
+    }
+    assert len(runs) == 1, runs
+
+
+def test_an_unknown_extractor_has_neither_fingerprint():
+    from scraper.extract import registry
+
+    assert registry.body_fingerprint("nope") is None
+    assert registry.output_fingerprint("nope") is None
+
+
 def test_unknown_extractor_raises():
     with pytest.raises(KeyError):
         extract_payload(payload(b"<html></html>"), "nope")
+
+
+def test_only_a_real_404_counts_as_gone():
+    """A timeout or a 5xx must never be read as a deletion.
+
+    `record_error` is used for every acquisition failure, so the status code is the only
+    thing separating "the vendor removed this page" from "the network was unhappy".
+    """
+    from scraper.extract import _is_gone
+
+    assert _is_gone({"state": "fetch_error", "status_code": 404})
+    assert _is_gone({"state": "fetch_error", "status_code": 410})
+    assert not _is_gone({"state": "fetch_error", "status_code": 503})
+    assert not _is_gone({"state": "fetch_error", "status_code": None})
+    assert not _is_gone({"state": "ok", "status_code": 404})
