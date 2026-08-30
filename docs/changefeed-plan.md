@@ -230,8 +230,12 @@ gc [--keep N]                     drop blobs no snapshot references
 opt-in**: the default reuses what is already in `raw/`, so the whole feed is exercisable in
 seconds without putting load on partner servers. With `--fetch` it calls
 `run_fetch(mode="refresh")` at the configured 1 req/s. The code stays scheduler-ready — one
-command, an exit code, and a JSON summary written to `state/runs/` in the existing shape —
-but nothing schedules it.
+command, an exit code, and a machine-readable summary written beside the report as
+`reports/changefeed/<A>..<B>.json` — but nothing schedules it.
+
+(An earlier draft of this plan said that summary went to `state/runs/`, alongside the fetch
+runs. It does not, and never did: the JSON lives with the report it describes, because the
+two are read together.)
 
 ## Reuse
 
