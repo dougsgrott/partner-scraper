@@ -201,13 +201,30 @@ The first real measurement, snapshots #1 → #2, covering **2026-08-18 → 2026-
 
 Also in the window: 49 pages moved file, 8 changed metadata only, 0 removed.
 
-**The 161 additions are genuinely new upstream, not newly discovered.** All 34 Databricks
-additions carry an `updated_date` between 2026-08-18 and 2026-08-28 — after the previous
-crawl — so the vendor published them inside the window. The 127 Anthropic additions cannot be
-settled the same way (no `updated_date` on that source), though their paths
-(`/models/opus-5`, `/models/sonnet-5`, `/models/fable-5`) place them squarely in the launch.
-Separating the two cases for Anthropic would need a first-seen column in `fetch.db`, which
-does not exist and has not been worth adding.
+**The 161 additions are new to the corpus — which is not quite the same as new upstream.**
+All 34 Databricks additions carry an `updated_date` between 2026-08-18 and 2026-08-28, after
+the previous crawl, so the vendor published them inside the window. The 127 Anthropic
+additions cannot be settled the same way (no `updated_date` on that source), though their
+paths (`/models/opus-5`, `/models/sonnet-5`, `/models/fable-5`) place them squarely in the
+launch.
+
+**Five of those 127 are not new content at all.** Anthropic kept both URL trees live through
+the restructure, and both are in the sitemap, so the corpus holds the same bytes twice:
+
+```
+about-claude/models/overview          =  models/overview
+about-claude/models/whats-new-opus-5  =  models/opus-5/whats-new-opus-5
+release-notes/system-prompts          =  release-notes/system-prompts/overview
+```
+
+`validate.py`'s `duplicate_bodies` check reports 21 such groups corpus-wide. The existing
+`duplicate` status cannot catch them: it detects two URLs resolving to the same *file path*,
+and these resolve to different paths. The effect on the churn figure is within rounding — 5
+of 1,277 — but `added` means "new to the corpus", and this window is where that distinction
+stopped being theoretical.
+
+Separating new-upstream from newly-discovered for Anthropic would need a first-seen column in
+`fetch.db`, which does not exist and has not been worth adding.
 
 **0 removed is real, but only because nothing was deleted in this window that we could see.**
 The one page that did 404 (`oltp/instances/query/notebook`) was invisible to the feed until
