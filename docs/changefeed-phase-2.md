@@ -117,9 +117,11 @@ every turn and duplicate the input.
 
 ## Cost
 
-~92k input tokens per run, plus drill-down tool calls and output. At Claude Opus 5 rates that
-is roughly **$0.50–$3 per run** all-in. Weekly cadence puts it in single-digit dollars a
-month. Cost is not a design constraint here and should not be treated as one.
+~105k input tokens per run, plus drill-down tool calls and output. **Measured at $4.06 for a
+complete run** — see the stage 2 result below; the earlier $0.50 estimate priced a single
+call and a digest is an agentic loop. Weekly cadence puts it around $20 a month. Cost is not
+a design constraint at that level, but it is not free either, and `--max-budget` should
+always be set.
 
 For contrast, sending full diffs would be ~6.1M input tokens (~$30/run), and option A's ~47
 sessions would exceed that while seeing less.
@@ -266,6 +268,139 @@ digest is repetition.
 **Fallback if recall is poor:** a hierarchical reduce — synthesize per category, then across
 the summaries. Only 26 categories carry ≥10 changes, so that is a cheap second stage rather
 than a redesign. Do not build it pre-emptively.
+
+## Stage 2 result (2026-08-30): built and run
+
+```
+src/changefeed/digest/
+  findings.py   the findings table in changes.db + deterministic rendering
+  tools.py      four read-only tools + record_finding(s); handlers are model-free
+  session.py    the one session; the only module importing claude-agent-sdk
+scripts/digest.py   compress | run | render
+```
+
+First full run over snapshots #1 → #2:
+
+| | |
+|---|---|
+| findings | **45** — 9 breaking, 18 behavioural, 11 additive, 7 editorial |
+| pages cited | 403 of 1,334 |
+| citations per finding | median 7, max 26 |
+| cost | **$4.06** |
+| wall clock | 9 min |
+
+**Story-level grouping works, which was the open question.** One finding covers the
+Foundation Model Fine-tuning end of life across ten pages; another covers the Admin API
+being republished under `api/beta/organization/*` across 36. The redundancy that made the
+path-list probe return ~25 stories in 44 slots is gone.
+
+It also found a breaking change that hand-labelling missed: `BUNDLE_ROOT` renamed to
+`DATABRICKS_BUNDLE_ROOT` across seven CI/CD pages, which the 50-change labelled sample had
+marked *not important*.
+
+### Cost was 5–10× the estimate, and the estimate measured the wrong thing
+
+The figure below — ~$0.50 per run — was derived from a single 105k-token call. A digest is
+an **agentic loop**: every tool call re-sends the whole change list, so turns, not tokens,
+are what it costs. The first attempt recorded twenty findings one call at a time and hit a
+$5 budget cap without finishing.
+
+The fix was a `record_findings` batch tool and a prompt that asks for batches of ten or
+more. Same run, complete, **$4.06**. Budget for **$4–6 per weekly run**, not $0.50, and keep
+`--max-budget` set: a cap is now handled as an outcome rather than an exception, because
+findings are written as each call lands and are durable even when a session stops early.
+
+### Validation: 69 rejections, and they were ours
+
+The run reported 69 citations rejected as pages that did not change. That looked like the
+membership test catching hallucination. It was not: `DigestContext.find` matched the full
+URL and then fell back to fuzzy containment, which rejected **194 of 1,334 legitimate
+slugs** — every short one, because `ai-gateway/` is a substring of
+`ai-gateway/query-model-services` and the uniqueness check then found several and gave up.
+The prompt shows slugs, so slugs are what the model answers with.
+
+Fixed by resolving exact URL → exact slug → unique suffix; all 1,334 now resolve, with a
+test. The observed hallucination rate is therefore **unmeasured, and probably near zero** —
+the earlier path-list probe returned zero invented paths across 147. The report now prints
+sample rejected URLs rather than a bare count, because a count alone was read as a model
+failure twice.
+
+### Are the findings *true*? (2026-08-30)
+
+Everything above measures whether the digest picks the right changes. Nothing measured
+whether what it *says* about them is correct — the claims are prose generated from a
+280-character excerpt, and URL validation proves only that a cited page changed.
+
+Audited by hand: ten findings drawn seeded and stratified by impact, each read against the
+actual changed lines of the pages it cites (`scripts/digest.py audit`).
+
+| | |
+|---|---|
+| true | **9** |
+| partly true | 1 |
+| false | **0** |
+
+Verified precisely, including details: `Python, TypeScript, and Ruby` → `TypeScript and
+Ruby` on the tool runner; Foundation Model Fine-tuning moving from "scheduled for removal
+2026-08-14" to "reached end of life"; AI Functions replacing a serverless requirement with a
+DBR 15.4 floor *and* dropping Pro SQL warehouses from the exclusion list; row tracking
+corrected from 14.1 to 14.0; the workspace-isolation warning added to Files and Skills.
+
+The one partial: a finding said Lakeflow links were rewritten to "Choose a standard
+connector" where the diff shows "Lakeflow Connect connector concepts". The reframing is real,
+that detail is not. Imprecision in a supporting clause, not a fabricated claim.
+
+**This is now standing practice.** `scripts/digest.py audit --n 10` draws a seeded sample and
+prints each finding beside its evidence; it costs nothing and should run after every digest.
+
+Two defects in the audit tool itself, both found by reading its output — which is the same
+lesson as §11b, one layer up:
+
+- it selected changed lines in multiset order, which surfaced blank lines and `> **Note:**`
+  boilerplate that could neither confirm nor refute a claim. It now orders by status language
+  then length, as the compressed excerpt does.
+- an `added` page reported "(stored body unavailable)", implying a fault where a new page
+  simply has no before-side.
+
+### Second run, after the fixes (2026-08-30)
+
+The first digest predated the slug-resolver repair and the attribution exclusion. Re-run
+clean:
+
+| | run 1 | run 2 |
+|---|---|---|
+| findings | 45 | **41** |
+| pages cited | 403 | **544** |
+| rejected citations | 69 (all a resolver bug) | **0** |
+| findings per tool call | ~1 | **20.5** |
+| cost | $4.06 | **$3.25** |
+| wall clock | 9 min | **6 min** |
+
+**Stability, as a spot-check rather than a figure:** 7 of run 1's 9 breaking headlines recur
+in run 2. Two dropped (an Admin API tunnel deprecation, a container `acl` requirement), one
+new appeared (`ant` CLI now needs Go 1.25). Two runs is not a distribution — this says the
+digest is broadly reproducible at the top, not that it is deterministic.
+
+That comparison was nearly impossible to make: the re-run **deleted** run 1's findings, and
+only the headlines that happened to be in terminal scrollback survived. Findings are now
+*superseded* rather than removed, so the next comparison has both sides.
+
+### Guards added after the first run
+
+- **`--max-budget` defaults to $8** (~2× a measured run). Uncapped requires `--no-budget`.
+  The first session ever run reached $5 in six minutes.
+- **Batching is now observable.** `DigestResult` reports findings-per-call and flags a
+  regression below 3, because the cost fix depends on the model choosing to batch and
+  nothing else would show a drift back to one-per-call except the invoice.
+- **The session layer has tests.** A stubbed `query` asserts option wiring, prompt
+  formatting, and that a budget exception yields a result rather than propagating.
+- **Findings carry `model` and `prompt_version`.** `PROMPT_VERSION` bumps whenever the
+  prompt changes, so runs from different prompts are not silently compared.
+- **`changes.py backup DIR`** copies the history — the only artifact here that cannot be
+  rebuilt. The database goes through SQLite's backup API (a file copy of a WAL database
+  mid-write is not guaranteed consistent); the content-addressed blob store copies
+  incrementally, so a second backup moves only what is new.
+- **Digests are tracked in git**; the 700 KB feed report and 2.5 MB JSON beside them are not.
 
 ## What would change this decision
 

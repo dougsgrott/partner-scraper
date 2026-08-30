@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .. import blobs, classify
+from ..classify import PIPELINE, UNKNOWN
 from ..diff import ADDED, METADATA, MOVED, REMOVED, DiffResult, PageChange
 
 # Per-change excerpt budget. Two lines at 140 characters each: enough to carry a sentence
@@ -51,6 +52,7 @@ class CompressedChange:
     category: str
     kind: str
     title: str
+    cause: str = ""
     severity: float = 0.0
     signals: dict = field(default_factory=dict)
     excerpt: str = ""
@@ -78,6 +80,10 @@ class CompressedChange:
             parts.append(f"sev{self.severity:.1f}")
         if sig:
             parts.append(f"[{sig}]")
+        # Only `unknown` is marked. `content` is the overwhelming majority and labelling
+        # it would cost a thousand redundant tokens; `pipeline` never reaches the prompt.
+        if self.cause == UNKNOWN:
+            parts.append("(unattributed)")
         line = " ".join(parts)
         return f"{line} :: {self.excerpt}" if self.excerpt else line
 
@@ -90,6 +96,8 @@ class CompressedRun:
     after: str
     records: list[CompressedChange] = field(default_factory=list)
     counts: dict[str, int] = field(default_factory=dict)
+    # Changes withheld because our own extractor produced them. Counted, never hidden.
+    excluded_pipeline: int = 0
 
     def render(self) -> str:
         return "\n".join([self.header(), "", *(r.render() for r in self.records)])
@@ -101,13 +109,21 @@ class CompressedRun:
         benefits from knowing the shape of the set first.
         """
         tally = "  ".join(f"{kind} {n}" for kind, n in self.counts.items() if n)
-        return "\n".join([
+        lines = [
             f"# Documentation changes, {self.before} -> {self.after}",
             f"# {len(self.records)} changes: {tally}",
             ("# One line per change: company/category KIND path sev<severity> "
              "[signal counts] :: changed lines"),
             "# Signals: s=status/policy language, c=code, h=headings, n=numbers, l=links.",
-        ])
+        ]
+        if self.excluded_pipeline:
+            lines.append(
+                f"# {self.excluded_pipeline} further changes are excluded: our own "
+                "extractor produced them, so they are not vendor news.")
+        lines.append(
+            "# A change marked (unattributed) may or may not be the vendor's — describe "
+            "it cautiously and do not assert intent.")
+        return "\n".join(lines)
 
     @property
     def chars(self) -> int:
@@ -153,6 +169,7 @@ def compress(change: PageChange, *, blob_dir=None) -> CompressedChange:
         category=change.category,
         kind=change.kind,
         title=change.title,
+        cause=change.cause,
         severity=change.severity,
         signals={k: v for k, v in (change.signals or {}).items() if k in _SIGNAL_ORDER},
         excerpt=excerpt,
@@ -166,11 +183,18 @@ def compress_run(result: DiffResult, *, blob_dir=None) -> CompressedRun:
     list benefits from the sharpest evidence arriving early, and it makes the truncation
     that a future context limit might force cut from the least important end.
     """
+    # `pipeline` changes are ours, not the vendor's, and a digest that reports them is
+    # exactly the failure the attribution work in the change feed exists to prevent. They
+    # are withheld from the prompt and counted in the header, never silently dropped.
+    eligible = [c for c in result.changes if c.cause != PIPELINE]
+    excluded = len(result.changes) - len(eligible)
+
     records = [compress(c, blob_dir=blob_dir)
-               for c in sorted(result.changes, key=lambda c: (-c.severity, c.company, c.url))]
+               for c in sorted(eligible, key=lambda c: (-c.severity, c.company, c.url))]
     return CompressedRun(
         before=result.before.name,
         after=result.after.name,
         records=records,
-        counts=result.counts(),
+        counts={k: sum(1 for c in eligible if c.kind == k) for k in result.counts()},
+        excluded_pipeline=excluded,
     )

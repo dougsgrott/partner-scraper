@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ..fetch import rawstore
 from ..store import writer
-from ..store.index import Index
+from ..store.index import FILE_OWNING_STATUSES, Index
 from .report import Check, failed, passed, warned
 
 
@@ -113,9 +113,27 @@ def check_archive_readable(fetch_db_path: str | Path = "state/fetch.db",
 
 
 def check_rebuildable(index: Index, data_dir: str | Path = "data") -> Check:
-    """`index.db` must be reproducible from `data/` — it is the cheap half of the pair."""
-    live = {row["url"]: row for row in index.query(status="ok")}
-    volatile = {"raw_sha256", "output_fingerprint", "body_chars"}
+    """`index.db` must be reproducible from `data/` — it is the cheap half of the pair.
+
+    "Reproducible" means the rows a rebuild *can* derive. Three kinds of state live only in
+    the index because the frontmatter deliberately does not carry them, and each comes back
+    on the next extract pass, which rewrites no files:
+
+    * `raw_sha256` — provenance, kept out of the frontmatter so a vendor rebuild that
+      changes bytes without changing content does not diff every file (PLAN.md §8);
+    * `output_fingerprint` and `body_fingerprint` — pipeline identity, meaningless in a file;
+    * `status` — a page marked `gone` (404 upstream) keeps its last-known file on disk, so a
+      rebuild from `data/` alone sees an ordinary page and marks it `ok`.
+
+    That last one is why `live` spans the file-owning statuses rather than just `ok`: the
+    file exists, the rebuild will find it, and counting only `ok` rows made this check fail
+    the moment upstream deletions became visible.
+    """
+    live = {row["url"]: row
+            for status in FILE_OWNING_STATUSES
+            for row in index.query(status=status)}
+    volatile = {"raw_sha256", "output_fingerprint", "body_fingerprint", "body_chars",
+                "status", "error", "extracted_at"}
 
     with tempfile.TemporaryDirectory() as tmp, Index(Path(tmp) / "rebuilt.db") as rebuilt:
         count = rebuilt.rebuild(data_dir)

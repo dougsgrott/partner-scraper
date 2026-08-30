@@ -206,6 +206,19 @@ def cmd_show(args) -> int:
     return 0
 
 
+def cmd_backup(args) -> int:
+    """Copy the history somewhere else. The one thing here that cannot be rebuilt."""
+    from . import db as db_module
+
+    blob_dir = args.blob_dir or str(blobs.DEFAULT_BLOB_DIR)
+    copied, new = db_module.backup(args.destination,
+                                   db_path=args.changes_db or db_module.DEFAULT_DB_PATH,
+                                   blob_dir=blob_dir)
+    print(f"  backed up        {args.destination}")
+    print(f"  copied           {copied / 1_048_576:.1f} MiB  ({new} new bodies)")
+    return 0
+
+
 def cmd_gc(args) -> int:
     with _db(args) as db:
         snaps = db.snapshots()
@@ -267,6 +280,11 @@ def main() -> None:
     p.add_argument("--snapshot", type=int, help="which snapshot (default: the newest)")
     _add_store_args(p)
     p.set_defaults(func=cmd_show)
+
+    p = sub.add_parser("backup", help="copy the history — it cannot be rebuilt")
+    p.add_argument("destination")
+    _add_store_args(p)
+    p.set_defaults(func=cmd_backup)
 
     p = sub.add_parser("gc", help="drop old snapshots and unreferenced bodies")
     p.add_argument("--keep", type=int, help="keep only the N most recent snapshots")

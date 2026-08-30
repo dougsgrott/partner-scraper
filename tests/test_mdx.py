@@ -187,3 +187,19 @@ def test_nested_components_of_the_same_type_close_correctly():
     out = mdx.to_markdown(source)
     assert "**Outer**" in out and "**Inner**" in out and "Deep body" in out
     assert "<Accordion" not in out
+
+
+def test_a_self_closing_card_becomes_a_link():
+    """`<Card ... />` with no body. Skipping void tags left every link in them inert —
+    the release-notes index publishes ten, and the `mdx_converted` invariant caught it
+    only because the check was re-run after a refresh."""
+    src = ('<Card id="claude-opus-5" title="Claude Opus 5" icon="file" '
+           'href="https://x.test/opus-5" />')
+
+    assert mdx.to_markdown(src).strip() == "- [Claude Opus 5](https://x.test/opus-5)"
+
+
+def test_a_self_closing_unknown_component_is_still_left_alone():
+    src = '<HomeJourneyLink to="/somewhere" />'
+
+    assert mdx.to_markdown(src).strip() == src
