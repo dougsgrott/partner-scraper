@@ -51,7 +51,7 @@ SPA shell and record it as a success.
 
 ```bash
 uv sync                    # Python 3.12+
-uv run pytest              # 200 tests, no network
+uv run pytest              # 395 tests, no network
 ```
 
 ## Usage
@@ -214,6 +214,33 @@ the top of a 680-change run is the part worth reading.
 
 Full guide: [docs/changefeed.md](docs/changefeed.md).
 
+### Ask the corpus what matters
+
+The second application. The corpus's 39,872 internal links are a graph, and the graph
+knows which pages everything else depends on — plus, from the anchor text on every edge,
+what other pages *call* each one.
+
+```bash
+uv run python scripts/graph.py build --label baseline   # ~15 s, no network, no model
+uv run python scripts/graph.py rank --top 20            # hubs, by PageRank
+uv run python scripts/graph.py page <url>               # rank, neighbours, aliases
+uv run python scripts/graph.py stats --by category      # dense, thin, orphaned, stale
+uv run python scripts/graph.py report --write
+uv run python scripts/graph.py image --all              # SVG views for a deck
+```
+
+**Count links, not link occurrences.** One Databricks page links `supported-models` 48
+times from a repeated table row; ranking by raw count put that page 3rd in the corpus when
+only 53 pages reference it at all — it is 214th under PageRank. `rank` reports both counts
+side by side, and every build refuses to write unless every link instance in the corpus is
+accounted for.
+
+`image` writes `reports/graph/*.svg` — a map of what the corpus revolves around, one
+page's neighbourhood, the occurrence-vs-PageRank correction, and category density against
+centrality. Vector, so they scale into slides; no plotting dependency.
+
+Full guide: [docs/graph.md](docs/graph.md).
+
 ## Configuration
 
 [`config/sources.yaml`](config/sources.yaml) drives everything. A **source** is a tier
@@ -247,6 +274,7 @@ Add a partner site by adding a source. If no bespoke extractor fits it yet, `gen
 | `src/scraper/store/` | corpus writer (idempotent) + `index.db` manifest |
 | `src/scraper/validate/` | the corpus audit: integrity, invariants, coverage, fidelity |
 | `src/changefeed/` | **application 1** — what changed between runs, and who changed it |
+| `src/corpusgraph/` | **application 2** — the link graph, its rankings, and the corpus's vocabularies |
 | `raw/` | **archive** — verbatim page bytes, gzipped. Gitignored, never hand-edited |
 | `data/` | **corpus** — the Markdown output. Gitignored; rebuildable from `raw/` |
 | `state/fetch.db` | what we asked for, what came back, HTTP validators |
@@ -254,7 +282,9 @@ Add a partner site by adding a source. If no bespoke extractor fits it yet, `gen
 | `state/index.db` | corpus manifest; rebuildable from `data/` |
 | `state/changes.db` | **the corpus's history** — snapshots and page versions |
 | `state/changes/blobs/` | past page bodies, gzipped, addressed by content hash |
-| `reports/changefeed/` | rendered change feeds. Gitignored |
+| `state/graph.db` | the link graph, rankings and mined terms; rebuilt in ~15 s |
+| `reports/changefeed/` | rendered change feeds |
+| `reports/graph/` | rendered graph reports and SVG views |
 
 `raw/` is the expensive artifact — it costs a crawl to recreate. `data/` and
 `state/index.db` are cheap: both can be regenerated from `raw/` with no network.
@@ -283,6 +313,8 @@ corpus from `raw/` is ~7 minutes and no requests at all.
 | app 1 · attribution + ranking fixes | ✅ done — 594 false "our own churn" attributions eliminated; feed ordered by severity; full diff 10 min → **17 s** |
 | app 1 · deleted pages | ✅ done — a page that 404s upstream is marked `gone` and reported as `removed`; it was previously invisible forever |
 | app 1 · change feed, phase 2 (Agent SDK digest) | stage 1 built; recall measured — a run compresses to **~105k tokens** and every needle is reachable, including one at rank 1113/1116 ([decision record](docs/changefeed-phase-2.md)) |
+| app 2 · corpus graph, phase 1 | ✅ done — **39,872 edges** persisted, PageRank/HITS/depth, 23,830 mined terms, whole build in **15 s**; reconciliation caught 5,406 links its own first regex had silently dropped ([docs/graph.md](docs/graph.md)) |
+| app 2 · corpus graph, phase 2 (concept layer) | not started — deterministic half is the input it needs |
 | 9–10 · enrichment, browser tier | next |
 
 **Corpus today: 6,403 pages, 80.4 MiB, 121 categories — 0 extraction errors, 0 quality

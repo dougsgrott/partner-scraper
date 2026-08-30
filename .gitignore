@@ -25,6 +25,8 @@ state/*
 # !reports/changefeed/
 # reports/changefeed/*
 # !reports/changefeed/digest-*.md
+reports/graph
+
 .claude/
 CLAUDE.md
 

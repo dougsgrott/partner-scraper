@@ -42,7 +42,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 # `changefeed` is an application built on the corpus, not part of building it. It imports
 # `scraper`; `scraper` never imports it (docs/changefeed-plan.md).
-packages = ["src/scraper", "src/changefeed"]
+packages = ["src/scraper", "src/changefeed", "src/corpusgraph"]
 
 [tool.ruff]
 line-length = 100

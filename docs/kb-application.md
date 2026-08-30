@@ -20,8 +20,8 @@ It ends with the constraints that rule some options out, and a recommendation.
 | Pages | 6,403 (661 Anthropic · 5,742 Databricks) | ~20M tokens of body text, 79.5 MB |
 | Categories | 121, from `sql` (1,183) to `error-messages` (412) | a metadata filter axis, ready-made |
 | Pages with code | 4,066 (63%) across 47 languages | python 1,843 · sql 1,588 · json 624 · bash 588 |
-| Internal link edges | **73,519** resolving to another corpus page | a real graph, not a bag of documents |
-| Pages with inbound links | 5,822 / 6,403 (91%) | graph algorithms have signal to work with |
+| Internal link edges | ~~**73,519**~~ → **39,872 distinct pairs**, 75,925 occurrences (2026-08-30) | a real graph, not a bag of documents — but the old figure counted occurrences and image embeds ([`graph.md`](graph.md)) |
+| Pages with inbound links | 5,981 / 6,541 (91%); **560 orphans**, 606 unreachable | graph algorithms have signal to work with |
 | `breadcrumbs` + `updated_date` | 5,742 pages (Databricks only) | hierarchy- and recency-aware retrieval |
 | Cookbook metadata | 94 pages: `authors` (40 distinct), `tags`, `published_date`, `source_file_url` | the only human-attributed, dated slice |
 | Change detection | `content_hash` + `output_fingerprint`, with history in `state/changes.db` | diffing across runs works — see the correction to item 19 |
@@ -31,17 +31,24 @@ It ends with the constraints that rule some options out, and a recommendation.
 | Raw archive | `raw/` — 70 MB of verbatim gzipped bytes | re-parse history without refetching |
 | Page size | median 3,730 chars · p90 19,672 · **10 pages > 500 KB** | most pages fit in context whole |
 
-The graph names its own hot spots. Pages by inbound link count:
+~~The graph names its own hot spots. Pages by inbound link count:~~
 
-| Inbound | Page |
-|---|---|
-| 7,068 | `error-messages/error-classes` |
-| 4,123 | `error-messages/sqlstates` |
-| 2,501 | `machine-learning/foundation-model-apis/supported-models` |
-| 1,195 | `release-notes/release-types` |
+**Corrected 2026-08-30.** That table counted link *occurrences*, and the conclusion drawn
+from it does not survive being counted a second way. Measured by
+[`scripts/graph.py`](graph.md), which is now the committed source of these numbers:
 
-That distribution is a build-order signal, not trivia: it says where the questions
-concentrate before anyone has asked one.
+| Occurrences | Linking pages | Ratio | PageRank | Page |
+|---|---|---|---|---|
+| 7,069 | 210 | 33.7× | **#7** | `error-messages/error-classes` |
+| 4,123 | 406 | 10.2× | **#1** | `error-messages/sqlstates` |
+| 2,563 | **53** | 48.4× | **#214** | `machine-learning/foundation-model-apis/supported-models` |
+| 1,215 | 941 | 1.3× | **#2** | `release-notes/release-types` |
+| 437 | **20** | 21.9× | **#408** | `data-governance/unity-catalog/securable-objects` |
+
+`supported-models` ranked third because 53 pages link it about 48 times each — a table row
+repeated down a page, not a centre of gravity. Only 24 of the top 50 survive the switch to
+PageRank. The distribution is still a build-order signal, but the occurrence count is a
+signal about *templates*; the questions concentrate where distinct pages point.
 
 ---
 
@@ -115,19 +122,33 @@ series**, not a snapshot. Nothing off the shelf does this for a vendor's documen
 
 ## D. Graph and metadata analysis
 
-20. **Knowledge graph.** 73,519 edges already exist. Add entity extraction — products,
-    APIs, config flags — for multi-hop questions like *what depends on Unity Catalog?*
-21. **Hub and authority ranking** (PageRank over the graph) to prioritise what to teach,
-    test, and monitor. The corpus tells you its own centre of gravity.
+20. **Knowledge graph.** ~~73,519 edges already exist.~~ **Built 2026-08-30**
+    ([`graph.md`](graph.md)): 39,872 edges are now persisted in `state/graph.db`, each
+    carrying the anchor text used to cite it. 66% of those anchors differ from the target
+    page's title, which is an alias vocabulary for every page in the corpus — so entity
+    extraction is a *naming and typing* problem, not a span-mining one. That half is
+    phase 2 and is not started.
+21. **Hub and authority ranking** (PageRank and HITS over the graph) to prioritise what to
+    teach, test, and monitor. **Built.** It is not an enhancement on item 20 — it is the
+    correction to it; see the hot-spot table above.
 22. **Gap analysis against your own product surface** — where the vendor documents
     something you do not support, and where you support something they do not document.
-23. **Taxonomy mining.** 121 categories, 5,742 breadcrumb trails, and 14 cookbook tags form
-    a ready controlled vocabulary for your own content.
+    **Blocked on an input, not on engineering:** the repo holds no representation of what
+    Indicium supports, and a proxy would be a guess.
+23. **Taxonomy mining.** **Built.** 122 category terms, 5,893 breadcrumb trail nodes with
+    parents, 17,052 anchor aliases, 63 code languages, 40 authors, 14 tags and 646
+    external hosts, in `state/graph.db`'s `terms` table.
 24. **Cross-vendor concept alignment.** Databricks Vector Search ↔ Anthropic's RAG
     cookbook. Joint answers spanning both vendors are precisely the partner value-add, and
-    neither vendor publishes them.
+    neither vendor publishes them. **Categories cannot do this**: only 4 of 119 category
+    names are shared across the two vendors, and all four are structural (`api`, `index`,
+    `release-notes`, `resources`). A lexical prototype matched vocabulary rather than
+    concepts — its best pairs were *Archive Session* ↔ *ADD ARCHIVE*. It is a candidate
+    generator for phase 2's model pass, not an answer ([`graph-plan.md`](graph-plan.md)).
 25. **Content-strategy statistics** — which areas are dense, which are thin, and where
-    differentiated partner content would land.
+    differentiated partner content would land. **Built** (`graph stats`), and it
+    immediately surfaced something nobody had listed: **335 of Anthropic's 456 API pages
+    are orphans**, linked by nothing else in the corpus.
 
 ## E. Content generation and enablement
 
@@ -242,3 +263,4 @@ also available from `state/index.db` (`pages` table: `company`, `category`, `bod
 - [`validation.md`](validation.md) — what the corpus has been proven to contain
 - [`coverage.md`](coverage.md) — what it does not yet reach
 - [`lessons-learned.md`](lessons-learned.md) — why it is built the way it is
+- [`graph.md`](graph.md) — family D, phase 1: the graph, the rankings, and what they corrected
