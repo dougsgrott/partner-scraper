@@ -1,0 +1,62 @@
+# Recall ground truth for the #6 -> #7 run, from the graded audit sample of 2026-09-18
+# (reports/changefeed/verdicts-0006..0007.yaml). Needles verified BY READING the stored
+# diffs on that date. `rank` is the change's position among the 1,156 modifications of
+# this run ordered by severity, descending.
+#
+# Run with:
+#   uv run python scripts/probe_recall.py --needles docs/changefeed-needles-0006..0007.yaml --dry-run
+#
+# Unlike the #5 -> #6 set, none of these was missed — all four were surfaced and three
+# were misdescribed the same way, by asserting what the old text said without checking
+# ("invented contrast with the past", issue/accuracy/04). So in digest mode this set
+# regression-tests that a future prompt still surfaces them; the `what` text records
+# the real change a grader must hold the finding's description against.
+
+snapshots:
+  before: 6
+  after: 7
+
+needles:
+  - url_contains:
+      - "abac/metastore-policies"   # the added overview page — the best answer
+      - "abac/policies"             # or the modified attachment-levels page
+    rank: 105
+    what: >
+      Unity Catalog ABAC policies can now be attached at the metastore level (Beta).
+      The DENY policy type is NOT new here — the deny-policies page was created in the
+      #5 -> #6 window and already existed in #6.
+    why: >
+      Graded partly (finding 252): "including a new DENY policy type" was the invented
+      part. "DENY" has no version number, so the audit's newness check cannot see it —
+      the identifier-coverage gap of issue/accuracy/03.
+
+  - url_contains: "sql-ref-syntax-ddl-create-policy"
+    rank: 142
+    what: >
+      The SQL sentence "requires Databricks Runtime 18 LTS or above" already existed
+      for GRANT policies; the change is that "or DENY policy (Beta)" was added to it.
+      The DBR requirement itself is not new.
+    why: >
+      Graded partly (finding 253): the unchanged requirement was presented as the
+      change. A one-phrase edit inside an existing sentence — reappearing-line marking
+      (issue/accuracy/07) would have shown the model the sentence was edited, not added.
+
+  - url_contains: "machine-learning/retired-models-policy"
+    rank: 321
+    what: >
+      Kimi K2.7 gets a published pay-per-token retirement date of October 30, 2026,
+      with Kimi K3 named as the replacement — all new in the after text.
+    why: >
+      Graded true full-page (finding 240): a dated removal of a hosted model, the
+      bread-and-butter change the feed exists for. Keep a verified-true anchor in the
+      set so a regression is distinguishable from a grading artifact.
+
+  - url_contains: "build-with-claude/token-counting"
+    rank: 717
+    what: >
+      Token counting now documents an `invalid_request_error` for a few inputs the
+      Messages API accepts. The before text never mentioned server tools — there was
+      no "support note" to reframe.
+    why: >
+      Graded partly (finding 237): "previously framed as a support note" was invented.
+      Deep in the feed (sev 1.0), so it also tests recall where attention is thinnest.

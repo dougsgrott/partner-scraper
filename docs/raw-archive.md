@@ -120,6 +120,38 @@ Real content churn in the window: **986 modified + 69 new = 1,055 pages in 11 da
 quiet week either — the new pages include `models/fable-5-1/migration-guide` and
 `prompting-claude-fable-5-1`.
 
+## Third generation (2026-09-18): the normaliser also needs the date
+
+`20260918T184955`, 6,774 files, 57.0 MiB apparent. Real disk use is ~72 MB per generation
+(block rounding on small files), 217 MB for all three, so **~3.7 GB/year** weekly. The
+Windows host had **43 GB** free on 2026-09-18, down from ~55 GB on 2026-09-09. This archive
+grew by ~72 MB in that time, so the rest of that drop came from elsewhere on the machine.
+
+The 2026-09-09 normaliser (asset hashes + CSS-module suffixes) collapsed **188 of 5,835**
+Databricks pages this time, against 80% before. The cause: Databricks re-dated almost every
+page to 2026-09-11, and the raw HTML carries it:
+
+```
+- <time datetime=2026-06-23T00:00:00.000Z itemprop=dateModified>Jun 23, 2026
++ <time datetime=2026-09-11T00:00:00.000Z itemprop=dateModified>Sep 11, 2026
+```
+
+Normalising that element as well:
+
+| Databricks, gen 2 → gen 3 | pages |
+|---|---|
+| byte-identical | 1 |
+| collapsed by assets + CSS modules | 188 |
+| collapsed only once `dateModified` is also normalised | **4,966** |
+| survivors | 680 |
+| change-feed content modifications among survivors | **609 of 609. 0 false negatives** |
+
+With the date included, precision is 89.6% (609/680), in line with 91% last time. **The
+normaliser is a list of build-noise patterns, and it only finds out a pattern is missing when
+a vendor event exposes it.** This one would have looked like a 5,646-page content change. For
+the raw archive the date is noise, because the index already records `updated_date`
+separately.
+
 ## Open
 
 - **Normalised content-addressing** now looks better than the option-C plan it was meant to

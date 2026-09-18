@@ -22,10 +22,16 @@ Two modes, deliberately not the same test:
 **This spends real money and runs against the Claude Code CLI's credentials.** `--dry-run`
 shows exactly what would be sent, and its size, without calling anything.
 
+Needle files are per pair: the default describes #1 -> #2, and each graded pair since has
+its own (`docs/changefeed-needles-<BBBB>..<AAAA>.yaml`, seeded from the graded misses —
+see issue/accuracy/01-verdict-ledger.md). Passing one runs against its own pair
+automatically; pointing it at any other pair is refused rather than reported as misses.
+
 Examples:
     uv run python scripts/probe_recall.py --dry-run
     uv run python scripts/probe_recall.py --mode locate
     uv run python scripts/probe_recall.py --mode digest --top 30
+    uv run python scripts/probe_recall.py --needles docs/changefeed-needles-0005..0006.yaml --mode locate
 """
 
 from __future__ import annotations

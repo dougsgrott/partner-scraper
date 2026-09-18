@@ -1,0 +1,73 @@
+# Verdict worksheet — findings from #5 -> #6, prompt v1 (the superseded run).
+# Reconstructed 2026-09-18 from the session record, on the day the grading was done.
+# The graded set is the seeded audit draw (digest.py audit, defaults: n 10, seed 1 ->
+# 9 drawn); every claim was checked against the stored full page text, which is what
+# exposed the errors the 4-line excerpts had hidden.
+# Grades attach to finding rows, so superseding the run did not orphan them.
+pair: {before: 5, after: 6}
+prompt_version: "1"
+selection: draw
+seed: 1
+requested: 10
+graded_at: "2026-09-18"
+source: docs/session-2026-09-18-lessons.md §4 and the session transcript of 2026-09-18
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 16, drawn: 3, weight: 5.3333}
+  behavioural: {population: 14, drawn: 3, weight: 4.6667}
+  breaking: {population: 12, drawn: 2, weight: 6.0}
+  editorial: {population: 6, drawn: 1, weight: 6.0}
+verdicts:
+  - id: 125
+    impact: breaking
+    summary: "ABAC GRANT policies went GA, and a fourth policy type — ABAC DENY policies (Beta) — now exists and always overrides any grant, including object ownership, curre"
+    verdict: "true"
+    method: "full-page"
+    notes: "ABAC GRANT GA and the new DENY (Beta) policy type verified."
+  - id: 111
+    impact: breaking
+    summary: "Priority Tier now excludes Claude Fable 5.1 and Claude Mythos 5.1 in addition to Mythos 5, Mythos Preview, Opus 5 and Sonnet 5."
+    verdict: "partly"
+    method: "full-page"
+    notes: "'will fall back to standard tier' merges two rules: the page's fallback sentence is about exceeding committed capacity, not about unsupported models."
+  - id: 128
+    impact: behavioural
+    summary: "Lakeflow pipeline unit testing no longer requires the PREVIEW channel — it now requires Databricks Runtime 18.1 or above."
+    verdict: "true"
+    method: "full-page"
+    notes: ""
+  - id: 110
+    impact: behavioural
+    summary: "On Fable 5.1 and Mythos 5.1, thinking blocks from before a `compaction` block are no longer carried forward, and re-inserted assistant turns must have their thi"
+    verdict: "partly"
+    method: "full-page"
+    notes: "'or the request 400s' is not on the page — an invented consequence."
+  - id: 147
+    impact: behavioural
+    summary: "Serverless GPU tutorials now state a minimum environment version (Databricks AI environment v5+, or Standard v4/v5 for a few), and AI Runtime is repositioned to"
+    verdict: "unverified"
+    method: "full-page"
+    notes: "A grab-bag of five unrelated stories; the pages shown do not support the headline. Grab-bags were banned in prompt v2."
+  - id: 137
+    impact: additive
+    summary: "Lakebase gains HIPAA support with three new pages, extends PCI-DSS and HITRUST to all AWS regions where Lakebase runs, and is now enabled by default in complian"
+    verdict: "true"
+    method: "full-page"
+    notes: "Core claim verified (HIPAA pages; PCI-DSS/HITRUST extended beyond us-east-1)."
+  - id: 119
+    impact: additive
+    summary: "Fable 5.1 and Mythos 5.1 are threaded through the platform and feature support matrices — 1M context, Bedrock/Vertex/Foundry access, structured outputs, browser"
+    verdict: "true"
+    method: "full-page"
+    notes: "Core claim verified."
+  - id: 135
+    impact: additive
+    summary: "Databricks added Claude Fable 5.1, Gemini 3.8 Flash, GPT-6 Astra, Grok 4.6 and GLM 5.3 as hosted models, with per-region availability, rate limits, vision/funct"
+    verdict: "partly"
+    method: "full-page"
+    notes: "Grok 4.6 and GLM 5.3 were already in #5 — only 3 of the 5 models are new. The retention rule is inverted: the page says opt-out customers CANNOT use the model. The pair's biggest miss rides on this page — the same restriction is new for the existing Fable 5 and no finding reported it (needle 1 in docs/changefeed-needles-0005..0006.yaml)."
+  - id: 139
+    impact: editorial
+    summary: "The Genie Code docs were split apart — `use-genie-code` fragmented into features-capabilities, agent-mode, navigate-genie-code and web-search — breaking every d"
+    verdict: "partly"
+    method: "full-page"
+    notes: "use-genie-code still exists and its links were repointed — 'breaking every deep link' is wrong."

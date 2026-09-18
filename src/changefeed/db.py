@@ -78,6 +78,28 @@ CREATE TABLE IF NOT EXISTS findings (
     superseded_at   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_findings_pair ON findings(before_snapshot, after_snapshot);
+
+-- Human grades of findings, one row per (finding, grading method). Before this table,
+-- every manual audit's verdicts lived only as prose in session documents — `findings`
+-- carries `model` and `prompt_version` precisely so runs can be compared, and nothing
+-- compared them. Grades attach to the finding row, not to "current", so superseding a
+-- run keeps its grades and prompt versions stay comparable forever.
+--
+-- Unlike everything else in this database, these rows ARE rebuildable: each import comes
+-- from a worksheet under reports/changefeed/verdicts-*.yaml, which is the provenance and
+-- the backup. Vocabulary and semantics live in `changefeed.digest.verdicts`.
+CREATE TABLE IF NOT EXISTS verdicts (
+    finding_id     INTEGER NOT NULL REFERENCES findings(id),
+    method         TEXT NOT NULL,     -- excerpt | full-page (what the grader read)
+    verdict        TEXT NOT NULL,     -- true | partly | false | unverified
+    graded_at      TEXT NOT NULL,
+    selection      TEXT,              -- draw (seeded sample) | targeted (hand-picked)
+    stratum        TEXT,              -- impact group at draw time
+    stratum_weight REAL,              -- population / drawn for that stratum; NULL if targeted
+    notes          TEXT,
+    source         TEXT,              -- the worksheet file this row came from
+    PRIMARY KEY (finding_id, method)
+);
 """
 
 # Every column of `page_versions` except the snapshot id, in insert order. A page version

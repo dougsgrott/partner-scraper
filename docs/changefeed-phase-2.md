@@ -474,6 +474,48 @@ sentence added on the + side that contains restriction language (`cannot`, `not 
 text. That pass would have found the Fable 5 sentence. Measure its hit rate on #5 → #6 before
 deciding whether it feeds the session or the audit.
 
+### The verdict ledger (2026-09-18): grades stop evaporating
+
+Every accuracy statement above came from a manual audit whose verdicts lived only in prose —
+`prompt_version` existed so runs could be compared, and nothing compared them. Built per
+[issue/accuracy/01](../issue/accuracy/01-verdict-ledger.md): a `verdicts` table in
+`changes.db` (one row per finding × grading method; grades attach to the finding row, so a
+superseded run keeps its grades), YAML worksheets in `reports/changefeed/verdicts-*.yaml` as
+the editing surface and the provenance — the one part of `changes.db` that *is* rebuildable,
+by re-importing. The cycle is `digest.py grade` → edit → `grade --import` → `digest.py
+accuracy`; the audit and the worksheet both record stratum weights, because `draw()`
+guarantees each impact one slot and an unweighted sample rate over-represents rare impacts.
+
+The ledger refuses to pool three things the prose blurred: **method** (`excerpt` grades
+judge claim-vs-lines-shown; only `full-page` grades judge truth), **selection** (`draw`
+supports a rate; a `targeted` set picked to chase known errors does not), and the weights.
+The three existing grade sets are imported, and separating them changes what the history
+says:
+
+| pair | prompt | selection | method | true | partly | false | unverified | rate |
+|---|---|---|---|---|---|---|---|---|
+| #5 → #6 | v1 | draw | full-page | 4 | 4 | 0 | 1 | 50% (49% weighted) |
+| #5 → #6 | v2 | targeted | full-page + excerpt | 3 | 4 | 1 | 0 | not a rate |
+| #6 → #7 | v2 | draw | excerpt (6) | 6 | 0 | 0 | 0 | 100% |
+| #6 → #7 | v2 | draw | full-page (4) | 1 | 3 | 0 | 0 | — see below |
+
+Two things the table shows that the prose hid. **There is no unbiased full-page accuracy
+figure for prompt v2 at all** — the v2 #5 → #6 grades were targeted at v1's error classes,
+and #6 → #7's four full-page checks went to the findings that looked suspicious, so the
+1-of-4 row inherits that targeting and is not a rate either. The honest v1-to-v2 comparison
+still does not exist; producing one is now a single grade cycle (`digest.py grade 5 6`, grade
+all rows full-page). And the #6 → #7 "7 true / 3 partly" from the session record is a
+**mixed-method** number: 100% of excerpt grades agreed with their excerpts while 3 of 4
+full-page checks found errors — which is the 2026-08-30 lesson again, as a measurement.
+
+The graded misses have a standing home too: per-pair needle files
+(`docs/changefeed-needles-0005..0006.yaml`, `-0006..0007.yaml`), same genre as the
+original, runnable through `probe_recall.py --needles <file>`. The #5 → #6 set leads with
+the Fable 5 retention sentence — rank 538 of 986 because `cannot` carries no status signal
+([issue/accuracy/02](../issue/accuracy/02-restriction-lexicon.md)); for that needle a
+digest-mode URL hit is necessary but not sufficient, since both graded runs cited the page
+and still missed the restriction, so `locate` mode is the meaningful automated test.
+
 ## What would change this decision
 
 - **A run an order of magnitude larger.** ~12,000 changes would be ~900k compressed tokens

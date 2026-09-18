@@ -52,6 +52,14 @@ Compare the result against **~414/week** from the launch window. A large gap is 
 and useful outcome — it says the feed's volume is event-driven, which is itself an input to
 [05](05-decide-phase-2-architecture.md).
 
+### Measured (2026-09-18)
+
+Pair #6 → #7, 9.06 days, no model launch, no extractor change (0 `pipeline`, 0 `unknown`).
+Anthropic: **610 changes, ~471/week**, against ~414/week in the launch window. **The expected
+large gap did not appear.** 82% of modified pages are API reference. Hand-written pages ran
+~79/week. Figures and caveats are in `docs/changefeed.md`. The window is not fully quiet:
+61 of the 63 added pages are the Admin API republished under `api/beta/organization/*`.
+
 ## Part 2 — deleted pages are now visible (done)
 
 The refresh hit one 404:
