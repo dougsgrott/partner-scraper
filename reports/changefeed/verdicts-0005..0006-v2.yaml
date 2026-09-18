@@ -1,0 +1,61 @@
+# Verdict worksheet — findings from #5 -> #6, prompt v2 (the current run for the pair).
+# Reconstructed 2026-09-18 from the session record, on the day the grading was done.
+# TARGETED, NOT A SAMPLE: these findings were picked to track v1's error classes and
+# the audit's flags, so their true-rate means nothing as an accuracy figure — that is
+# what `selection: targeted` marks, and why `accuracy` refuses to call it a rate.
+# (In the session prose these were cited by their position in `audit 5 6 --n 63`:
+# 2, 10, 14, 38, 40, 45, 50, 54 — the ids below are the database rows.)
+pair: {before: 5, after: 6}
+prompt_version: "2"
+selection: targeted
+graded_at: "2026-09-18"
+source: docs/session-2026-09-18-lessons.md §4 and the session transcript of 2026-09-18
+verdicts:
+  - id: 160
+    impact: breaking
+    summary: "The CMEK page now says structured outputs are unavailable for Claude Fable and Claude Mythos models generally in CMEK organizations, where it previously named o"
+    verdict: "partly"
+    method: "excerpt"
+    notes: "The described text change is real (the exclusion widened to the whole families), but `breaking` is wrong: nothing that worked stops working. The one wrong `breaking` of v2's four."
+  - id: 159
+    impact: behavioural
+    summary: "Fable and Mythos models still require 30-day retention, but the docs now say they are unavailable under zero data retention \"unless expressly authorized by Anth"
+    verdict: "true"
+    method: "excerpt"
+    notes: "States the retention direction correctly (opt-out -> unavailable unless expressly authorized), fixing v1's inversion."
+  - id: 157
+    impact: behavioural
+    summary: "On Claude Fable 5.1 and Claude Mythos 5.1, tool_choice values `any` and `tool` return a 400 error; leave tool_choice at `auto` and set \"strict\": true instead."
+    verdict: "true"
+    method: "excerpt"
+    notes: "The added lines on all three cited pages state the 400 and the `strict: true` replacement verbatim — v1's invented-consequence class did not recur here."
+  - id: 192
+    impact: additive
+    summary: "Lakebase adds HIPAA support — enablement, audit logging and shared-responsibility pages — and PCI-DSS and HITRUST now cover all AWS regions where Lakebase is av"
+    verdict: "true"
+    method: "excerpt"
+    notes: "Same story graded true full-page in v1 (finding 137). The audit's `us-east-1` flag on this finding is the known false positive: the finding names us-east-1 as the old state on purpose."
+  - id: 171
+    impact: additive
+    summary: "The Python, TypeScript, Go, Java, Ruby, PHP and C# SDKs now support `code_execution_20260120`."
+    verdict: "false"
+    method: "full-page"
+    notes: "Claims the SDKs 'now support' code_execution_20260120, but the release note was already in #5 — the audit's newness check found the identifier in the BEFORE text of the cited pages."
+  - id: 158
+    impact: additive
+    summary: "Priority Tier now lists Claude Fable 5.1 and Claude Mythos 5.1 among the models it does not support, alongside Claude Mythos 5 and Claude Mythos Preview."
+    verdict: "partly"
+    method: "full-page"
+    notes: "The new-state claim is right (5.1 models added to the exclusion), but 'previously excluded only Mythos 5 and Mythos Preview' is wrong: the old sentence also excluded Opus 5 and Sonnet 5 (verified against the stored diff)."
+  - id: 173
+    impact: additive
+    summary: "Mid-conversation system messages gain a duration control (`\"never\"` by default, rendered on every request that includes it) and a documented placement constrain"
+    verdict: "partly"
+    method: "excerpt"
+    notes: "Presents an existing placement constraint as new; the evidence shows it existed before and was narrowed."
+  - id: 197
+    impact: additive
+    summary: "Databricks Foundation Model APIs add databricks-claude-fable-5-1, Gemini 3.8 Flash, GPT-6 Astra, GLM-5.3 and grok-4-6, with region, rate-limit, vision, reasonin"
+    verdict: "partly"
+    method: "full-page"
+    notes: "Grok 4.6 and GLM 5.3 were already in #5 (verified in the before text); Fable 5.1, Gemini 3.8 Flash and GPT-6 Astra are genuinely new. The detail's 'opt-out path' inverts the page (opt-out customers cannot use the model). The newness check now flags this finding."

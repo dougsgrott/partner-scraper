@@ -241,6 +241,33 @@ Anthropic pages changed *purely* by link rewriting, so this is a genuine site-wi
 rather than one mechanical event. Its steady-state rate is still unknown — see
 `issue/changefeed-phase-2-readiness/04-quiet-week-measurement.md`.
 
+**Measured without a launch (2026-09-18), and it is not lower.** Pair #6 → #7 is 9.06
+days, fetch to fetch. No model shipped. The release notes carry five feature entries
+(compact-on-demand, Managed Agents `auto` permissions, `ant` CLI 1.32.0, per-message effort on
+Google Cloud, Compliance API Chrome transcripts).
+
+| Anthropic | launch window (#1 → #2) | no-launch window (#6 → #7) |
+|---|---|---|
+| changes | 650 in 11 days | 610 in 9.06 days (547 modified, 63 added) |
+| per week | ~414 | **~471** |
+| API reference share of modified | — | 447 of 547 (82%) |
+| hand-written pages | — | 100 modified + 2 added, ~79/week |
+
+**Volume is not event-driven. The API reference is.** It is regenerated continuously, and it
+drives Anthropic churn whether or not anything launched. The 61 new pages are one event: the
+Admin API republished under `api/beta/organization/*`, which also produces 132 of the
+corpus's 175 duplicate-body groups (`admin/analytics/cost` = `beta/organization/analytics/cost`).
+
+It isn't a textbook quiet week, because that republication is a new path segment. But the
+hand-written count (~79/week) is the steady-state figure issue 04 asked for, and it is small.
+
+**Databricks re-dated the whole site.** 4,805 pages moved file (all byte-identical bodies) and
+229 more changed only metadata. All of them are `updated_date` jumping to 2026-09-11.
+`data/databricks/<category>/<YYYY-MM>/` is keyed on that date, so one vendor rebuild relocates
+71% of the corpus. Content changes were 609 modified + 76 added, ~529/week, against 399/week
+before. **The `updated_date` proxy validated above is broken by this event.** It stamped
+5,034 pages whose content did not change.
+
 ### Why this is written down rather than re-derivable
 
 **The tool no longer reports these numbers.** Of the 1,116 modifications, 594 are

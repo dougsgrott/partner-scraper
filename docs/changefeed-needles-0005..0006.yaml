@@ -1,0 +1,80 @@
+# Recall ground truth for the #5 -> #6 run — the pair the digest was graded on twice
+# (prompt v1 and v2; the verdicts are in reports/changefeed/verdicts-0005..0006-*.yaml).
+# Convention as in changefeed-needles.yaml: needles verified BY READING the stored
+# diffs (2026-09-18), before being written down. `rank` is the change's position among
+# the 986 modifications of this run ordered by severity, descending.
+#
+# Run with:
+#   uv run python scripts/probe_recall.py --needles docs/changefeed-needles-0005..0006.yaml --dry-run
+#
+# This set exists because of a graded miss. Both digest runs over this pair cited the
+# supported-models page and neither reported the restriction on it — so for needle 1,
+# a digest-mode HIT (which only checks that a finding names the page) is necessary but
+# not sufficient. `locate` mode, which asks for the change by description, is the
+# meaningful automated test; the `what` text is the ground truth a grader must hold
+# any finding that cites the page against.
+
+snapshots:
+  before: 5
+  after: 6
+
+needles:
+  # --- the graded miss: the reason this file exists ----------------------
+  - url_contains: "foundation-model-apis/supported-models"
+    rank: 538
+    what: >
+      A retention sentence is added for the EXISTING Claude Fable 5 (not just the new
+      5.1): "For Claude Fable 5, prompts and responses are retained for 30 days for
+      trust and safety purposes. Customers who opt out of data retention cannot use
+      Claude Fable 5." Opted-out customers lose a model they already had.
+    why: >
+      The pair's most consequential change, and its known miss: v1 filed the page under
+      an additive new-models finding that inverted the rule ("including for customers
+      who opt out"); v2 still described "an opt-out path". Severity ranked the page 538
+      of 986 (1.3) because "cannot" carries no status signal — the verified lexicon gap
+      in issue/accuracy/02-restriction-lexicon.md. A restriction dressed as an addition,
+      in the middle of the feed: the exact shape the digest is for.
+
+  # --- the false-newness trap, at the top of the feed --------------------
+  - url_contains: "foundation-model-overview"
+    rank: 1
+    what: >
+      Region tables gain entries for the genuinely new hosted models —
+      databricks-claude-fable-5-1, gemini-3-8-flash, gpt-6-astra — while
+      databricks-grok-4-6 was ALREADY in the before text. The tables were rewritten
+      whole, so old entries reappear on + lines.
+    why: >
+      Where the digest's most persistent false claim originates: both v1 and v2 called
+      Grok 4.6 (and GLM 5.3, on supported-models) "added". A finding naming this page
+      counts as recall; calling the old models new again is the graded error, and the
+      audit's newness check now flags it mechanically.
+
+  # --- verified anchors across the severity range ------------------------
+  - url_contains: "build-with-claude/compaction"
+    rank: 32
+    what: >
+      On Fable 5.1 and Mythos 5.1, thinking blocks from before a compaction block are
+      no longer carried forward, and the supported-models list on the page changed.
+      The page states no 400 error — v1's "or the request 400s" was invented.
+    why: "behaviour change on an existing feature, high in the feed; graded partly in v1"
+
+  - url_contains: "api/service-tiers"
+    rank: 53
+    what: >
+      Priority Tier's exclusion list grows: "except Claude Mythos 5, Claude Mythos
+      Preview, Claude Opus 5, and Claude Sonnet 5" becomes the same list plus Claude
+      Fable 5.1 and Claude Mythos 5.1. Opus 5 and Sonnet 5 were already excluded —
+      v2's account of the old list dropped them.
+    why: >
+      Availability narrowing with a documented invented-contrast error on the old
+      state (verdict on finding 158) — the error class issue/accuracy/04 targets.
+
+  - url_contains: "abac/grant-policies"
+    rank: 744
+    what: >
+      The Beta label comes off ABAC GRANT policies (title and admonition removed —
+      a GA transition), while a sibling DENY policies page is newly added.
+    why: >
+      A GA transition visible mostly as a removed callout, deep in the feed (cf. the
+      ip-functions needle of #1 -> #2). Graded true in v1. GA is never `breaking`
+      under prompt v2's rules.

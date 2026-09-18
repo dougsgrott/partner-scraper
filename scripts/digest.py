@@ -11,6 +11,13 @@ Examples:
     uv run python scripts/digest.py compress --out run.txt   # what a session would read
     uv run python scripts/digest.py run 1 2                  # one session, spends money
     uv run python scripts/digest.py render 1 2               # re-render, no model
+    uv run python scripts/digest.py audit 6 7 --n 10         # sample findings + evidence
+
+Grading a run is one emit -> edit -> import cycle (see `changefeed.digest.verdicts`):
+    uv run python scripts/digest.py grade 6 7                # emit the worksheet
+    $EDITOR reports/changefeed/verdicts-0006..0007.yaml      # fill verdict + method
+    uv run python scripts/digest.py grade --import reports/changefeed/verdicts-0006..0007.yaml
+    uv run python scripts/digest.py accuracy                 # rates by prompt version
 """
 
 from __future__ import annotations
@@ -133,6 +140,8 @@ def cmd_audit(args) -> int:
             return 1
         result = diff.compare(before, after, db=db, blob_dir=args.blob_dir)
 
+    from changefeed.digest import verdicts
+
     by_url = {c.url: c for c in result.changes}
     drawn = audit.draw(stored, args.n, args.seed)
     audits = [audit.audit_finding(f, by_url, blob_dir=args.blob_dir,
@@ -142,12 +151,97 @@ def cmd_audit(args) -> int:
     print(f"# Finding audit — {before.name} -> {after.name}  (prompt v{version})")
     print(f"\n{len(drawn)} of {len(stored)} findings, seed {args.seed}. For each: the claim, "
           f"then the changed lines that best match it. Mark each TRUE, PARTLY, or FALSE.")
+    # The sampling record. The draw gives every impact at least one slot, so rare
+    # impacts are oversampled; a grade set without these weights cannot be extrapolated.
+    strata = verdicts.stratum_weights(stored, drawn)
+    print("strata: " + "  ".join(
+        f"{impact} {s['drawn']}/{s['population']} (weight {s['weight']})"
+        for impact, s in strata.items()))
     flagged = sum(1 for a in audits if a.already_present)
     if flagged:
         print(f"\n! {flagged} finding(s) claim something is new that already existed before "
               f"— check those first.")
     for i, a in enumerate(audits, 1):
         print(audit.render(a, i))
+    return 0
+
+
+def cmd_grade(args) -> int:
+    """Emit a verdict worksheet for a pair, or import a filled one.
+
+    The emit draws the same seeded sample as `audit` (same `--n`, same `--seed`), so the
+    worksheet lists exactly the findings whose evidence the audit printed. The import is
+    all-or-nothing: any invalid entry fails the file with every problem listed.
+    """
+    from datetime import UTC, datetime
+
+    from changefeed.digest import audit, verdicts
+
+    with ChangeDB(args.changes_db) if args.changes_db else ChangeDB() as db:
+        if getattr(args, "import_file", None):
+            try:
+                rows = verdicts.parse(args.import_file, db)
+            except verdicts.WorksheetError as err:
+                print(err, file=sys.stderr)
+                return 1
+            verdicts.store(db, rows)
+            methods = {v.method for v in rows}
+            print(f"stored {len(rows)} verdict(s) from {args.import_file} "
+                  f"({', '.join(sorted(methods))})")
+            return 0
+
+        pair = _pair(db, args)
+        if pair is None:
+            return 1
+        before, after = pair
+        stored = findings.for_pair(db, before.id, after.id)
+        if not stored:
+            print("no findings for this pair", file=sys.stderr)
+            return 1
+        drawn = audit.draw(stored, args.n, args.seed)
+        text = verdicts.worksheet(
+            (before.id, after.id), stored, drawn, seed=args.seed, requested=args.n,
+            graded_at=datetime.now(UTC).date().isoformat())
+        out = Path(args.out or
+                   f"reports/changefeed/verdicts-{before.id:04d}..{after.id:04d}.yaml")
+        if out.exists() and not args.force:
+            print(f"{out} already exists — it may hold grades not yet imported. "
+                  f"Use --out for a new file or --force to overwrite.", file=sys.stderr)
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(f"worksheet for {len(drawn)} of {len(stored)} findings: {out}")
+        print("fill `verdict` and `method`, then: "
+              f"uv run python scripts/digest.py grade --import {out}")
+        return 0
+
+
+def cmd_accuracy(args) -> int:
+    """Accuracy by prompt version, from the verdict ledger. No model, no cost.
+
+    One row per (pair, prompt version, selection, method) — never merged across method
+    or selection, because an excerpt grade and a full-page grade are different
+    measurements, and a targeted set (findings picked because something looked wrong)
+    is not a rate at all.
+    """
+    from changefeed.digest import verdicts
+
+    with ChangeDB(args.changes_db) if args.changes_db else ChangeDB() as db:
+        rows = verdicts.accuracy(db, method=args.method)
+    if not rows:
+        print("no verdicts stored" + (f" for method {args.method}" if args.method else "")
+              + "; run `digest.py grade` first", file=sys.stderr)
+        return 1
+    print(f"{'pair':>8}  {'prompt':>6}  {'selection':>9}  {'method':>9}  "
+          f"{'true':>4} {'partly':>6} {'false':>5} {'unver':>5}   rate  weighted")
+    for r in rows:
+        rate = f"{r['rate']:.0%}" if r["rate"] is not None else "—"
+        weighted = f"{r['weighted']:.0%}" if r["weighted"] is not None else "—"
+        note = "  (targeted — not a rate)" if r["selection"] == "targeted" else ""
+        print(f"  #{r['before']}->#{r['after']}  {('v' + (r['prompt_version'] or '?')):>6}  "
+              f"{(r['selection'] or '?'):>9}  {r['method']:>9}  "
+              f"{r['true']:>4} {r['partly']:>6} {r['false']:>5} {r['unverified']:>5}   "
+              f"{rate:>4}  {weighted:>8}{note}")
     return 0
 
 
@@ -195,6 +289,24 @@ def main() -> None:
     p.add_argument("--changes-db")
     p.add_argument("--blob-dir")
     p.set_defaults(func=cmd_audit)
+
+    p = sub.add_parser("grade", help="emit a verdict worksheet, or --import a filled one")
+    p.add_argument("before", nargs="?")
+    p.add_argument("after", nargs="?")
+    p.add_argument("--n", type=int, default=10, help="findings to draw (match the audit)")
+    p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--out", help="where to write the worksheet")
+    p.add_argument("--force", action="store_true", help="overwrite an existing worksheet")
+    p.add_argument("--import", dest="import_file", metavar="FILE",
+                   help="validate FILE and store its verdicts; nothing else happens")
+    p.add_argument("--changes-db")
+    p.set_defaults(func=cmd_grade)
+
+    p = sub.add_parser("accuracy", help="grade counts by prompt version, from the ledger")
+    p.add_argument("--method", choices=("excerpt", "full-page"),
+                   help="only grades made this way (full-page is the trustworthy one)")
+    p.add_argument("--changes-db")
+    p.set_defaults(func=cmd_accuracy)
 
     args = ap.parse_args()
     raise SystemExit(args.func(args))

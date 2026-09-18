@@ -1,0 +1,79 @@
+# Verdict worksheet — findings from #6 -> #7, prompt v2.
+# Reconstructed 2026-09-18 from the session record, on the day the grading was done.
+# MIXED METHODS — this is the set the session record reports as '7 true, 3 partly,
+# 0 false'. Only the four full-page rows judge truth; the six excerpt rows judge
+# whether a claim matches the ranked lines shown, the method the session record
+# itself calls invalid for truth. `accuracy` keeps the two apart; do not pool them.
+pair: {before: 6, after: 7}
+prompt_version: "2"
+selection: draw
+seed: 1
+requested: 10
+graded_at: "2026-09-18"
+source: docs/session-2026-09-18-lessons.md §4 and the session transcript of 2026-09-18
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 33, drawn: 4, weight: 8.25}
+  behavioural: {population: 31, drawn: 4, weight: 7.75}
+  breaking: {population: 5, drawn: 1, weight: 5.0}
+  editorial: {population: 10, drawn: 1, weight: 10.0}
+verdicts:
+  - id: 289
+    impact: breaking
+    summary: "Connecting directly to a Lakehouse//RT warehouse from the Power BI service is no longer supported; the docs now tell you to connect through an on-premises data "
+    verdict: "true"
+    method: "excerpt"
+    notes: ""
+  - id: 277
+    impact: behavioural
+    summary: "Databricks Apps is now turned on by default for workspaces with the compliance security profile enabled, in all regions where the selected standard is available"
+    verdict: "true"
+    method: "excerpt"
+    notes: ""
+  - id: 253
+    impact: behavioural
+    summary: "Creating, modifying or dropping an ABAC GRANT policy or DENY policy (Beta) with SQL requires Databricks Runtime 18 LTS or above."
+    verdict: "partly"
+    method: "full-page"
+    notes: "Presents the DBR 18 LTS requirement as the change; the sentence already required it — the only change is DENY policies being added to the existing sentence."
+  - id: 240
+    impact: behavioural
+    summary: "Kimi K2.7 now has a published pay-per-token retirement date of October 30, 2026, with Kimi K3 named as the replacement."
+    verdict: "true"
+    method: "full-page"
+    notes: "Kimi K2.7's October 30, 2026 retirement date and the Kimi K3 replacement are new in the after text; absent before."
+  - id: 237
+    impact: behavioural
+    summary: "Token counting now documents that it returns an `invalid_request_error` for a few inputs the Messages API accepts, including server tools."
+    verdict: "partly"
+    method: "full-page"
+    notes: "'Previously framed as a support note' is invented — the before text never mentions server tools at all. The documented invalid_request_error is a real addition."
+  - id: 252
+    impact: additive
+    summary: "Unity Catalog ABAC policies can now be attached at the metastore level (Beta), including a new DENY policy type, with a dedicated metastore-policies page."
+    verdict: "partly"
+    method: "full-page"
+    notes: "'A new DENY policy type' is wrong: the DENY page existed in #6 (it was added in the #5->#6 window). The metastore-level attachment (Beta) is the real change. The newness check cannot see 'DENY' — no version number (issue 03)."
+  - id: 262
+    impact: additive
+    summary: "Lakeflow pipelines add `depends_on` flow ordering (Public Preview), so a flow starts only after named flows complete successfully — for example draining a backf"
+    verdict: "true"
+    method: "excerpt"
+    notes: ""
+  - id: 219
+    impact: additive
+    summary: "The Messages API can now compact a conversation on demand, and the models endpoints expose a `compaction` capability field."
+    verdict: "true"
+    method: "excerpt"
+    notes: ""
+  - id: 238
+    impact: additive
+    summary: "The Opus 5 migration guide now lists Claude Platform on AWS among the surfaces where the 1M context window is the default and the context-window beta header sho"
+    verdict: "true"
+    method: "excerpt"
+    notes: ""
+  - id: 234
+    impact: editorial
+    summary: "Java cloud-backend artifacts in the docs move from 2.60.0 to 2.63.0, and the Java SDK page now describes the platform artifacts as add-ons to the base `com.anth"
+    verdict: "true"
+    method: "excerpt"
+    notes: ""
