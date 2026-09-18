@@ -27,7 +27,10 @@ MODEL = "claude-opus-5"
 
 # Bump whenever PROMPT changes. Findings carry it, so a later reader can tell whether two
 # runs are comparable — a reworded prompt changes the output and nothing else records it.
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
+# v2 (2026-09-18): the #5 -> #6 audit found four partly-true findings and one buried breaking
+# change, all from the same cause — claims going beyond what the page says. Rules 2, 4, 5 and 6
+# below each answer one observed failure; see docs/changefeed-phase-2.md.
 
 # Enough turns to read a few diffs and record a few dozen findings; low enough that a loop
 # cannot run away. A session that hits this has usually misunderstood the task.
@@ -52,22 +55,42 @@ cost of the run; twenty separate calls cost several times what two do.
 
 Rules that matter:
 
-1. **A finding is a story, not a page.** If twenty pages changed because one thing
-   happened — a runtime version floor, a deprecation, an API moving out of beta — that is
-   ONE finding citing all twenty paths in `urls`. Repeating a story once per page is the
-   main way this digest fails.
-2. **Lead with what breaks.** Removed capabilities, changed support or availability,
-   deprecations with dates, new required permissions or versions, price changes. An
-   `impact` of `breaking` should mean a reader has to do something.
-3. **Check before you write.** The excerpt is 280 characters and is often not enough to be
-   sure. Call `get_diff` on anything you intend to describe and are not certain about.
+1. **A finding is one story — no fewer pages, no more stories.** If twenty pages changed
+   because one thing happened, that is ONE finding citing all twenty in `urls`. The
+   converse matters as much: if a summary needs "and" to join changes with different
+   causes, it is two findings. A finding that bundles a new tutorial, a version floor and a
+   renamed product cannot be acted on and cannot be checked.
+2. **Say only what the page says.** Do not state a consequence the text does not state —
+   an error code, a fallback, a broken link, a migration someone must do. If a page says
+   "not supported on X", write that; do not write that requests to X will fail, fall back,
+   or return 400 unless the page says so. A plausible inference presented as fact is the
+   most common way this digest has been wrong.
+3. **Check before you write.** The excerpt is 280 characters and often not enough. Call
+   `get_diff` on anything you intend to describe and are not certain about.
    `inbound_links` tells you how much of the corpus depends on a page.
-4. **Cite only paths from the list.** A finding about a page that did not change is worse
+4. **"New" means absent before.** Before calling a model, feature, field or option new,
+   check that it does not appear anywhere in the old text — `get_diff` shows both sides. A
+   name on a `+` line is not new if it is also on a `-` line: tables are often rewritten
+   whole, so an existing entry reappears among the "added" lines. Likewise say something was removed only if the
+   change is marked REMOVED or the text says so; a page whose links were repointed has not
+   been deleted.
+5. **`impact` has a precise meaning.**
+   - `breaking`: something that worked before stops working, or now needs action to keep
+     working — a capability removed, a **new restriction on something that already exists**,
+     a version floor imposed on existing usage, a changed default.
+   - Not breaking: a feature reaching GA, a new model that a feature does not support (it
+     never did), a new option.
+   A GA transition is `behavioural` or `additive`, never `breaking`.
+6. **Look for restrictions hidden inside additions.** A page that mostly announces new
+   models or features can also quietly restrict an existing one. Those are the changes a
+   reader most needs and the easiest to miss, because the page reads as good news. Record
+   them as their own `breaking` finding, not as a clause inside the announcement.
+7. **Cite only paths from the list.** A finding about a page that did not change is worse
    than a missing finding. Paths are validated and invalid ones are rejected.
-5. **Some changes are marked `(unattributed)`.** Our own pipeline may or may not have
-   produced those; nobody knows. Report them if they look important, but describe what the
-   text now says rather than asserting the vendor changed it deliberately.
-6. **Say bulk regeneration once.** Large parts of a run can be an API reference being
+8. **Some changes are marked `(unattributed)`.** Our own pipeline may or may not have
+   produced those. Report them if they look important, but describe what the text now says
+   rather than asserting the vendor changed it deliberately.
+9. **Say bulk regeneration once.** Large parts of a run can be an API reference being
    regenerated — schema shapes, casing, field-list collapsing. Record that as a single
    `editorial` finding rather than ignoring it or itemising it.
 

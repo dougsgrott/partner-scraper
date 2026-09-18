@@ -276,6 +276,7 @@ Add a partner site by adding a source. If no bespoke extractor fits it yet, `gen
 | `src/changefeed/` | **application 1** — what changed between runs, and who changed it |
 | `src/corpusgraph/` | **application 2** — the link graph, its rankings, and the corpus's vocabularies |
 | `raw/` | **archive** — verbatim page bytes, gzipped. Gitignored, never hand-edited |
+| `raw-archive/` | one hard-linked generation per scraping session — **not** re-fetchable |
 | `data/` | **corpus** — the Markdown output. Gitignored; rebuildable from `raw/` |
 | `state/fetch.db` | what we asked for, what came back, HTTP validators |
 | `state/runs/` | one JSON summary per fetch run |

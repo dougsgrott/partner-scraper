@@ -12,6 +12,11 @@ wheels/
 # Raw fetch archive (large; re-fetchable but slow — keep it, never commit it)
 raw/
 
+# Archived scraping sessions (plans/raw-archive-plan.md). Unlike raw/, these are NOT
+# re-fetchable: a generation records what a vendor served on one day, and that day is gone.
+# Gitignored because of size, not because they are disposable — back them up.
+raw-archive/
+
 # Local corpus + index (rebuildable; not committed)
 data/*
 !data/.gitkeep

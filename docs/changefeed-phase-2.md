@@ -402,6 +402,78 @@ only the headlines that happened to be in terminal scrollback survived. Findings
   incrementally, so a second backup moves only what is new.
 - **Digests are tracked in git**; the 700 KB feed report and 2.5 MB JSON beside them are not.
 
+### Third pair, #5 → #6: the excerpt audit was too lenient (2026-09-18)
+
+The first pair with a model launch in it (Claude Fable 5.1 / Mythos 5.1, plus five new
+Databricks-hosted models). Checked against **full pages** instead of the audit's four-line
+excerpts, the prompt-v1 digest (48 findings) had errors the 9/1/0 audit above would not have
+caught:
+
+- Grok 4.6 and GLM 5.3 called "added" — both were already listed in #5
+- Fable 5.1 retention misstated. The page says *"Customers who opt out of data retention
+  cannot use Claude Fable 5.1"*
+- **missed:** that same sentence is new for the **existing** Claude Fable 5, so opted-out
+  customers lose a model they already had. The most consequential change in the pair, and it
+  was not in the digest
+- consequences the docs never state: a Priority Tier "fallback", compaction "400s", Genie Code
+  "breaking every deep link" (the old page still exists and the links were repointed)
+- one grab-bag finding with three unrelated stories; `breaking` on 12 of 48
+  findings, several of them wrong
+
+**The excerpt audit judges whether a claim matches the lines shown, not whether it is true.**
+A finding citing 13 pages gets three shown, and a newness claim can't be checked without the
+old text.
+
+Three changes followed:
+
+1. **Prompt v2.** Say only what the page says. Check the old text before calling something
+   new. `breaking` means something that worked stops working or needs action, including a new
+   restriction on something that already exists. Look for restrictions hidden inside additions
+   and record each as its own finding. One story per finding.
+2. **The audit checks newness mechanically.** For a finding whose headline claims something
+   new, every versioned name in the headline (`Grok 4.6`, `GLM-5.3`, `grok-4-6`, backticked
+   ids) is looked up in the BEFORE text of its cited pages, with separators normalised so
+   prose and id forms match each other. It also has to survive into the AFTER text, so "pins
+   X instead of Y" doesn't flag Y. The audit also says when it shows less than half the
+   evidence (`! only 23% of the evidence is shown`).
+3. The check took three tries, each fixed by running it on real findings. v1 matched only id
+   forms and **missed the Grok 4.6 case it was written for**; its synthetic test used an id
+   and passed. It also checked the detail text and flagged context (`us-east-1`). After those
+   fixes, v2's phrasing slipped past it: the bare verb "add" and `GLM-5.3`. Each has a test
+   built from the exact text that got past it.
+
+**Prompt v2 on the same pair:** 63 findings, 584 pages cited, $2.81, 63 findings per call.
+
+| v1 error | v2 |
+|---|---|
+| Grok 4.6 / GLM 5.3 "added" | **still wrong** (#54). Now flagged by the audit |
+| Fable 5.1 retention misstated | fixed in #10; **still wrong** in #54's detail ("an opt-out path") |
+| new restriction on existing Fable 5 | **still missed**, even with a rule written for exactly this |
+| Priority Tier "fallback" | gone. But #45 misstates the old list, which also excluded Opus 5 and Sonnet 5 |
+| compaction "400s" | gone |
+| Genie Code "breaking every deep link" | fixed: "links were repointed" (#62) |
+| grab-bag finding | gone. Stories split: ABAC GA and DENY are now two findings |
+| `breaking` overused | 12 → 4. One is still wrong: CMEK "Fable 5" → "Fable" widens the exclusion to a model that is new this week (#2) |
+
+New errors in v2: #40 calls `code_execution_20260120` SDK support new. That release note was
+already in #5, and only its availability tail changed. The audit flagged it. #50 presents a
+placement constraint that existed before as new; it was actually narrowed.
+
+**Verdict: accuracy improved but did not recover.** Unstated consequences and mislabelled
+impact mostly went away. The two errors that matter most did not: false newness and a missed
+restriction on an existing model. Prompt rules didn't fix either. The first is now caught
+mechanically. The second is not, because nothing checks for **absence**: no audit can flag a
+finding that was never written.
+
+Known audit false positive: #38 ("PCI-DSS now covers all regions rather than us-east-1 only")
+flags `us-east-1`, which the headline names as the old state on purpose.
+
+**Open: detecting new restrictions on existing things.** It could be a deterministic pass: a
+sentence added on the + side that contains restriction language (`cannot`, `not available`,
+`must`, `requires`, `rejected`) and names a model or feature that was already in the BEFORE
+text. That pass would have found the Fable 5 sentence. Measure its hit rate on #5 → #6 before
+deciding whether it feeds the session or the audit.
+
 ## What would change this decision
 
 - **A run an order of magnitude larger.** ~12,000 changes would be ~900k compressed tokens

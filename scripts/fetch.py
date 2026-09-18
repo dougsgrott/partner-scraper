@@ -9,6 +9,12 @@ Examples:
     uv run python scripts/fetch.py --source databricks-docs --limit 50
     uv run python scripts/fetch.py --refresh                    # revalidate the archive
     uv run python scripts/fetch.py                              # resume / fetch what's new
+    uv run python scripts/fetch.py --archive-now                # archive raw/, fetch nothing
+
+Every successful run archives the bytes it fetched as a generation under `raw-archive/`
+(plans/raw-archive-plan.md). That is on by default rather than opt-in: `raw/` is overwritten
+in place, so a generation nobody remembered to archive is gone the moment the next refresh
+runs, and no later command can recover it.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ import argparse
 import logging
 
 from scraper.config import load_config
+from scraper.fetch import generations
 from scraper.fetch.runner import run_fetch
 
 
@@ -38,12 +45,26 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="select jobs but make no requests")
     ap.add_argument("--offline", action="store_true", help="build the worklist from dumps only")
     ap.add_argument("-q", "--quiet", action="store_true", help="suppress progress lines")
+    ap.add_argument("--no-archive", action="store_true",
+                    help="do not archive this run's bytes (they become unrecoverable once "
+                         "the next fetch overwrites raw/)")
+    ap.add_argument("--archive-now", action="store_true",
+                    help="archive the CURRENT contents of raw/ and exit, fetching nothing")
+    ap.add_argument("--label", help="name for the generation (default: a UTC timestamp)")
     args = ap.parse_args()
 
     logging.basicConfig(
         level=logging.ERROR if args.quiet else logging.WARNING,
         format="%(message)s",
     )
+
+    # Capture what is already on disk, without touching the network. The generation in
+    # `raw/` right now has no other record; the next fetch overwrites it.
+    if args.archive_now:
+        generation = generations.archive(label=args.label)
+        print(f"archived {generation.label}")
+        print(generation.render())
+        return
 
     mode = "force" if args.force else "refresh" if args.refresh else "new"
     cfg = load_config(args.config)
@@ -57,6 +78,16 @@ def main() -> None:
         use_sitemaps=not args.offline,
     )
     print(summary.render())
+
+    if args.dry_run or args.no_archive:
+        return
+    if not summary.ok:
+        print("\n  nothing fetched — no generation archived")
+        return
+
+    generation = generations.archive(label=args.label, run=summary.started_at)
+    print(f"\narchived generation {generation.label}")
+    print(generation.render())
 
 
 if __name__ == "__main__":

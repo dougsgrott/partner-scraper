@@ -585,3 +585,125 @@ async def test_a_batching_regression_is_visible_in_the_run_output(corpus):
 
     assert ctx.calls["batch calls"] == 1
     assert ctx.calls["findings recorded"] == 2
+
+
+# --- the audit ------------------------------------------------------------
+
+def _two_sided(corpus, before_md: str, after_md: str):
+    corpus.populate([record("a", markdown=before_md)])
+    corpus.snap()
+    corpus.populate([record("a", markdown=after_md)])
+    corpus.snap()
+    with ChangeDB(corpus.changes_db) as db:
+        b, a = db.last_two()
+        result = diff.compare(b, a, db=db, blob_dir=corpus.blob_dir)
+    return {c.url: c for c in result.changes}
+
+
+def test_the_audit_flags_a_new_claim_about_something_already_there(corpus):
+    """The failure the #5 -> #6 audit found by hand: Grok 4.6 reported as newly added when
+    the models table had simply been rewritten whole and the old entry reappeared on a `+`
+    line. A scorer is only tested once it has returned a failure (lessons-learned §19)."""
+    from changefeed.digest.audit import audit_finding
+    from changefeed.digest.findings import Finding
+
+    by_url = _two_sided(
+        corpus,
+        "# Models\n\n| model |\n|---|\n| `databricks-grok-4-6` |\n",
+        "# Models\n\n| model | notes |\n|---|---|\n| `databricks-grok-4-6` | hosted |\n"
+        "| `databricks-gpt-6-astra` | hosted |\n")
+    # Prose names, as the real finding wrote them — an id-only first version missed this.
+    finding = Finding(impact="additive",
+                      summary="Databricks added GPT 6 Astra and Grok 4.6 as hosted models",
+                      urls=list(by_url))
+
+    result = audit_finding(finding, by_url, blob_dir=corpus.blob_dir)
+
+    assert "Grok 4.6" in result.already_present
+    assert not any("6" in x and "Astra" in x for x in result.already_present)
+
+
+def test_context_in_the_detail_is_not_mistaken_for_a_newness_claim(corpus):
+    """"Previously documented only for us-east-1" names something that existed before, on
+    purpose. Checking the detail flagged exactly that, and every such flag was noise."""
+    from changefeed.digest.audit import audit_finding
+    from changefeed.digest.findings import Finding
+
+    by_url = _two_sided(corpus, "# X\n\nAvailable in us-east-1 on version 2.1.\n",
+                        "# X\n\nAvailable in all regions on version 2.1.\n")
+    finding = Finding(impact="additive", summary="HIPAA support added",
+                      detail="Previously documented only for us-east-1 on version 2.1.",
+                      urls=list(by_url))
+
+    assert audit_finding(finding, by_url, blob_dir=corpus.blob_dir).already_present == []
+
+
+def test_the_audit_does_not_flag_a_deprecation_naming_something_that_existed(corpus):
+    """Something deprecated necessarily existed before. Flagging it would train the reader
+    to ignore the warning, which is worse than having none."""
+    from changefeed.digest.audit import audit_finding
+    from changefeed.digest.findings import Finding
+
+    by_url = _two_sided(corpus,
+                        "# Tools\n\nUse `legacy-tool-api` for this.\n",
+                        "# Tools\n\n`legacy-tool-api` is deprecated and removed on 2026-12-01.\n")
+    finding = Finding(impact="breaking",
+                      summary="`legacy-tool-api` is deprecated, removal on 2026-12-01",
+                      urls=list(by_url))
+
+    assert audit_finding(finding, by_url, blob_dir=corpus.blob_dir).already_present == []
+
+
+def test_evidence_lines_are_ranked_by_the_claim_not_by_position():
+    """Taking lines in order showed blank lines and boilerplate that proved nothing."""
+    from changefeed.digest.audit import rank_lines
+
+    lines = [("+", "> **Note:**"), ("+", ""),
+             ("+", "Customers who opt out of data retention cannot use Claude Fable 5.")]
+    terms = {"opt", "retention", "fable"}
+
+    assert "cannot use Claude Fable 5" in rank_lines(lines, terms)[0][1]
+    assert all(text.strip() for _, text in rank_lines(lines, terms))
+
+
+def test_a_finding_citing_far_more_than_is_shown_says_so(corpus):
+    """Judging a 25-page finding from three of its pages as if that were the whole case is
+    how the first audit came out too generous."""
+    from changefeed.digest.audit import Audit, render
+    from changefeed.digest.findings import Finding
+
+    finding = Finding(impact="additive", summary="x",
+                      urls=[f"https://x.test/en/p{i}" for i in range(25)])
+
+    text = render(Audit(finding=finding, shown_pages=3), 1)
+
+    assert "only 12% of the evidence is shown" in text
+
+
+def test_a_replaced_name_is_not_flagged(corpus):
+    """"Now pins claude-opus-4-8 instead of claude-opus-4-1" names the old model on purpose;
+    it is the one that went away, so it must not be flagged as falsely new."""
+    from changefeed.digest.audit import audit_finding
+    from changefeed.digest.findings import Finding
+
+    by_url = _two_sided(corpus, "# X\n\nmodel = claude-opus-4-1\n",
+                        "# X\n\nmodel = claude-opus-4-8\n")
+    finding = Finding(impact="editorial",
+                      summary="Examples now pin `claude-opus-4-8` instead of `claude-opus-4-1`",
+                      urls=list(by_url))
+
+    assert audit_finding(finding, by_url, blob_dir=corpus.blob_dir).already_present == []
+
+
+def test_newness_check_reads_the_v2_phrasing():
+    """The v2 run wrote "add ... GLM-5.3 and grok-4-6": the bare verb and a hyphen-then-dot
+    name both slipped past the check the first time."""
+    from changefeed.digest.audit import claims_newness, identifiers
+    from changefeed.digest.findings import Finding
+
+    finding = Finding(impact="additive", urls=[],
+                      summary="Databricks Foundation Model APIs add Gemini 3.8 Flash, GLM-5.3 "
+                              "and grok-4-6, with region and rate-limit entries for each.")
+
+    assert claims_newness(finding)
+    assert {"GLM-5.3", "grok-4-6", "Gemini 3.8 Flash"} <= identifiers(finding)
