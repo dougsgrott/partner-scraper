@@ -19,7 +19,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from changefeed import blobs, diff
+from changefeed import diff
 from changefeed.db import ChangeDB
 from changefeed.digest import compress_run, findings
 
@@ -114,20 +114,13 @@ def _write(db, before, after, changes: int, args) -> int:
 
 
 def cmd_audit(args) -> int:
-    """Check that findings are TRUE, not merely well-formed.
+    """Check that findings are TRUE, not merely well-formed. See `changefeed.digest.audit`.
 
-    URL validation proves a cited page changed; nothing proves the sentence about it is
-    right. This draws a seeded sample of findings and prints each one beside the actual
-    changed lines of the pages it cites, so a person can decide. No model, no cost.
-
-    Seeded and stratified by impact, the same way `sample_review.py` draws corpus pages,
-    so a re-draw with the same seed gives the same sample.
+    No model and no cost. Prints each sampled finding beside the changed lines that best
+    match its claim, and flags the claim most often wrong: calling something new that was
+    already in the old text.
     """
-    import random
-    from collections import defaultdict
-
-    from changefeed import classify
-    from changefeed.digest.findings import IMPACTS
+    from changefeed.digest import audit
 
     with ChangeDB(args.changes_db) if args.changes_db else ChangeDB() as db:
         pair = _pair(db, args)
@@ -138,63 +131,23 @@ def cmd_audit(args) -> int:
         if not stored:
             print("no findings for this pair", file=sys.stderr)
             return 1
-
-        by_impact = defaultdict(list)
-        for f in stored:
-            by_impact[f.impact].append(f)
-        rng = random.Random(args.seed)
-        drawn = []
-        for impact in IMPACTS:
-            group = by_impact.get(impact, [])
-            if not group:
-                continue
-            quota = max(1, round(args.n * len(group) / len(stored)))
-            drawn.extend(rng.sample(group, min(quota, len(group))))
-        drawn = drawn[: args.n]
-
         result = diff.compare(before, after, db=db, blob_dir=args.blob_dir)
-        by_url = {c.url: c for c in result.changes}
 
-        print(f"# Finding audit — {before.name} -> {after.name}")
-        print(f"\n{len(drawn)} of {len(stored)} findings, seed {args.seed}. For each: the "
-              f"claim, then the changed lines of the pages it cites. Mark each TRUE, "
-              f"PARTLY, or FALSE.\n")
-        for i, f in enumerate(drawn, 1):
-            print(f"\n{'=' * 78}\n{i}. [{f.impact}] {f.headline}")
-            if f.detail:
-                print(f"\n   {' '.join(f.detail.split())[:400]}")
-            print(f"\n   cites {len(f.urls)} page(s); showing up to {args.pages}:")
-            for url in f.urls[: args.pages]:
-                change = by_url.get(url)
-                print(f"\n   --- {url.split('/en/')[-1]}")
-                if change is None:
-                    print("       (not in this diff)")
-                    continue
-                b = blobs.read_or_none((change.before or {}).get("content_hash"), args.blob_dir)
-                a = blobs.read_or_none((change.after or {}).get("content_hash"), args.blob_dir)
-                if change.kind in ("added", "removed"):
-                    # No two sides to diff. Saying "unavailable" implied a fault where
-                    # there is none — a new page simply has no before-body.
-                    print(f"       ({change.kind} page — "
-                          f"{(change.current.get('body_chars') or 0):,} chars)")
-                    continue
-                if b is None or a is None:
-                    print("       (stored body unavailable)")
-                    continue
-                removed, added = classify.changed_sides(b, a)
-                # Same ordering the compressed excerpt uses: status language first, then
-                # longest, skipping blanks. Taking lines in multiset order showed empty
-                # strings and `> **Note:**` boilerplate, which cannot confirm or refute
-                # anything — the audit tool needed auditing before its output was usable.
-                def informative(lines: list[str]) -> list[str]:
-                    real = [ln for ln in lines if ln.strip()]
-                    real.sort(key=lambda ln: (0 if classify.STATUS.search(ln) else 1, -len(ln)))
-                    return real[: args.lines]
+    by_url = {c.url: c for c in result.changes}
+    drawn = audit.draw(stored, args.n, args.seed)
+    audits = [audit.audit_finding(f, by_url, blob_dir=args.blob_dir,
+                                  pages=args.pages, lines=args.lines) for f in drawn]
 
-                for line in informative(removed):
-                    print(f"       - {line.strip()[:170]}")
-                for line in informative(added):
-                    print(f"       + {line.strip()[:170]}")
+    version = stored[0].prompt_version or "?"
+    print(f"# Finding audit — {before.name} -> {after.name}  (prompt v{version})")
+    print(f"\n{len(drawn)} of {len(stored)} findings, seed {args.seed}. For each: the claim, "
+          f"then the changed lines that best match it. Mark each TRUE, PARTLY, or FALSE.")
+    flagged = sum(1 for a in audits if a.already_present)
+    if flagged:
+        print(f"\n! {flagged} finding(s) claim something is new that already existed before "
+              f"— check those first.")
+    for i, a in enumerate(audits, 1):
+        print(audit.render(a, i))
     return 0
 
 
