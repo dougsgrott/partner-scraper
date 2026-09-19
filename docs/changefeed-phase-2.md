@@ -466,7 +466,14 @@ mechanically. The second is not, because nothing checks for **absence**: no audi
 finding that was never written.
 
 Known audit false positive: #38 ("PCI-DSS now covers all regions rather than us-east-1 only")
-flags `us-east-1`, which the headline names as the old state on purpose.
+flags `us-east-1`, which the headline names as the old state on purpose. *Resolved
+(2026-09-18): regions are excluded from identifier extraction by shape — a region is where
+something became available, never the thing that became available — and the measurement
+found the same false positive one run earlier, unrecorded (finding 91). Broadening the
+extractor in the other direction was measured on all 231 stored findings and rejected;
+[issue/accuracy/03](../issue/accuracy/03-newness-coverage.md) has the numbers, including
+why a corpus-wide check would have flagged nine true launch findings over one early
+cookbook page.*
 
 **Open: detecting new restrictions on existing things.** It could be a deterministic pass: a
 sentence added on the + side that contains restriction language (`cannot`, `not available`,
@@ -485,6 +492,16 @@ restriction-boosted, clause-windowed excerpt sits behind `digest.py run
 --boost-restrictions` pending its graded A/B (findings record `prompt_version` `2+r`), and
 run reports carry a `classify_version` stamp. The detector sketched above is still open as
 issue/accuracy/05, and remains the only channel that can surface the Fable 5 line itself.
+
+*Update (2026-09-19):* the audit also verifies **claims about the past** now — the graded
+runs' most common error class. A quote attributed to the old text must appear in the
+before text of the cited pages; a rename's to-quote in the after text. On all 231 stored
+findings this flags exactly two claims, both real fabrications: the "support note" quote
+of finding 237 (it exists only on the new page — the model quoted the new page as the
+old) and finding 202's `"BASIC reports only"` (a paraphrase presented as a quotation).
+Term-overlap checking of unquoted past-claims measured ~90% false and was rejected; the
+prompt rule that would make the paraphrase class checkable is drafted and gated in
+[issue/accuracy/04](../issue/accuracy/04-invented-contrast.md).
 
 ### The verdict ledger (2026-09-18): grades stop evaporating
 

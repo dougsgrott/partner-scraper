@@ -1,6 +1,8 @@
 # 03 — Newness check: invisible identifiers, cited-page scope
 
-**Status:** open (2026-09-18) · **Kind:** code + measurement · **Effort:** ~3 h
+**Status:** measured (2026-09-18), uncommitted — the broadenings were **rejected by the
+numbers**; what survived is implemented. See *Measured* and *Done* below ·
+**Kind:** code + measurement · **Effort:** ~3 h
 **Depends on:** nothing to build; [01](01-verdict-ledger.md) to measure FP rates properly
 **Blocks:** nothing hard; option C feeds [05](05-missed-restrictions.md)
 
@@ -82,17 +84,69 @@ an option that triples its flag rate with noise is worse than the gap.
 
 ## Acceptance criteria
 
-- [ ] DBR 18, Claude Fable 5, and AI v6 headlines each extract an identifier, with tests
-      built from the real recorded findings, not synthetic ones (the standing rule — the
-      first version of this check failed exactly by testing on a synthetic id)
-- [ ] The all-cited-pages-`added` case no longer skips silently: it either checks against
+- [ ] ~~DBR 18, Claude Fable 5, and AI v6 headlines each extract an identifier~~ —
+      **invalidated by measurement**: extracting that class produced flags on 6 of 6
+      affected findings, every one false (see *Measured*), and would not have caught
+      either real graded error. The criterion assumed broader extraction helps; the
+      numbers say the dotted-version gate was load-bearing.
+- [x] The all-cited-pages-`added` case no longer skips silently: it either checks against
       the corpus-wide index (option C) or renders an explicit "newness unverifiable —
-      no before text" note
-- [ ] FP rates per admitted option measured on stored findings and recorded here
-- [ ] The `us-east-1` false positive resolved or explicitly accepted with its rate stated
+      no before text" note — *the note; option C was measured and rejected as a flag
+      source*
+- [x] FP rates per admitted option measured on stored findings and recorded here
+- [x] The `us-east-1` false positive resolved or explicitly accepted with its rate stated
+      — *resolved by shape exclusion; measurement found a second unrecorded instance
+      (finding 91, pair #1 → #2) and zero true region flags ever*
 
 ## Tests
 
-- real DBR 18 and Fable 5 finding texts flag against real before-bodies
+- ~~real DBR 18 and Fable 5 finding texts flag against real before-bodies~~ (rejected
+  with option A)
 - a genuinely new dotted-version name still flags nothing (no regression on the working case)
-- option C: an identifier present only on an *uncited* page of the before snapshot flags
+- ~~option C: an identifier present only on an *uncited* page of the before snapshot
+  flags~~ (rejected — that behaviour would have flagged nine true launch findings)
+- real finding 192's headline extracts no region; the all-added case renders its note
+
+## Measured (2026-09-18)
+
+Extraction variants over all **231 stored findings** (four sets: #1 → #2, #5 → #6 v1 and
+v2, #6 → #7), then flag deltas under the audit's real containment semantics against the
+stored blobs, every new flag hand-checked:
+
+| option | new identifiers | new flags | verdict on the flags |
+|---|---|---|---|
+| A — single-number names, `v\d`, underscore ids (months and leading "The" already excluded) | 40 across 28 findings | 10 flags on 6 findings | **6/6 findings false.** "Mythos 5", "Claude Fable 5", "DBR 18" appear in headlines as *context* — the old floor, the existing family, the list being joined. Established things carry bare numbers; newly-versioned things carry dotted ones. The gate encoded that. |
+| B — backticked terms without digits | 159 across 87 findings | flags on **25 findings** | ~24/25 noise: SQL-keyword and common-word collisions (`FILE`, `ALTER TABLE`, `auto`, `effort`, `INSERT`). One plausible true positive (`MLFLOW_TRACING_SQL_WAREHOUSE_ID`). The check is trusted because it is quiet; this quintuples it with noise. |
+| B′ — B, but the term must appear *backticked* in the old text | — | flags on 19 findings | same classes, barely better. Rejected. |
+| C — corpus-wide before-index (current extractor, 2.5–6.7 s to scan a full snapshot) | — | 14 flags on 12 findings | effectively all false, and instructively so: **one cookbook page mentioned Claude Fable 5.1 before the launch**, which would have flagged nine true launch findings of that week at once. Per-company scoping would not have helped (same company). Prompt rule 4's letter — "anywhere in the old text" — is the wrong semantics for real findings. |
+| D — exclude cloud-region shapes | −2 identifiers | −2 flags | both standing FPs (findings 91 and 192, the same "…beyond us-east-1" shape) gone; **zero true region flags exist in any stored set.** Admitted. |
+
+**The decisive negative:** none of A/B/B′/C catches either real graded error. Finding 253
+(the DBR 18 mislabel) asserts contrast **without a newness verb**, so the newness check
+never runs on it under any extractor — that error class belongs to
+[04](04-invented-contrast.md). Finding 252's "DENY" is invisible to every extractor
+measured — plain-noun newness has no deterministic handle here and its systematic answer
+is [05](05-missed-restrictions.md)'s corpus-existence semantics, where "did this exist
+anywhere before" *is* the right question.
+
+**Silent skips:** exactly 4 newness findings across all sets cite only added pages, and
+none of them extracts a checkable identifier — so option C would have verified nothing
+for them either. The explicit note is the honest fix.
+
+**Known residual FP (accepted, rate stated):** one flag in #6 → #7 (an editorial finding
+whose subject is "Fable 5.1" and whose *detail* contains instructional "add …", which
+trips `claims_newness`). 1 false of 3 standing flags; predates this issue's changes.
+Narrowing `claims_newness` is its own measurement and is not attempted here.
+
+## Done (2026-09-18)
+
+- `audit.identifiers()` excludes cloud-region shapes (`_REGION`, covers `-gov-` forms);
+  the extractor is otherwise **unchanged on purpose**, and its docstring now carries the
+  rejection numbers so the next reader does not re-broaden it in passing.
+- `audit_finding` sets `newness_unverifiable` when a newness-claiming finding has no
+  before text; `render` prints "the newness check could NOT run; verify by hand".
+  Re-running the stored audits surfaces the note on all 4 affected findings.
+- Verified on the real pairs: finding 192's flag is gone, the true flags
+  (`code_execution_20260120`; `GLM-5.3`/`grok-4-6`) are intact.
+- Tests from real texts: finding 192's headline (region excluded, end to end), the
+  shape-not-blocklist property, the all-added note, and the no-regression case.
