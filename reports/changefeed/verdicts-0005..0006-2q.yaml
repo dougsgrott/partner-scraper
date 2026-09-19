@@ -1,0 +1,76 @@
+# Verdict worksheet — findings from #5 -> #6, prompt v2+q (EXPERIMENT ARM Q:
+# the quote-your-evidence prompt rule — issue/accuracy/04 option B). Seeded draw,
+# graded full-page against the stored blobs on 2026-09-19.
+pair: {before: 5, after: 6}
+prompt_version: "2+q"
+selection: draw
+seed: 1
+requested: 10
+graded_at: "2026-09-19"
+source: graded against stored blobs, session of 2026-09-19
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 30, drawn: 5, weight: 6.0}
+  behavioural: {population: 18, drawn: 3, weight: 6.0}
+  breaking: {population: 5, drawn: 1, weight: 5.0}
+  editorial: {population: 9, drawn: 1, weight: 9.0}
+verdicts:
+  - id: 473
+    impact: breaking
+    summary: "The change data feed Requirements section now reads \"Databricks Runtime 19 or above\", up from \"Databricks Runtime 18 LTS or above\"."
+    verdict: "true"
+    method: "full-page"
+    notes: "Both quoted requirement texts verified verbatim against the stored diff — the quote rule working as designed."
+  - id: 448
+    impact: behavioural
+    summary: "The managed-agents docs switch from piping YAML into `ant beta:<resource> create` to a declarative `ant apply <file>`, with a new page covering it."
+    verdict: "true"
+    method: "full-page"
+    notes: "Same story as v2 finding 168, graded true full-page."
+  - id: 458
+    impact: behavioural
+    summary: "When the inference-hooks circuit breaker trips, enforcement stops and automatic recovery only runs while your Inference hooks settings are unchanged since the t"
+    verdict: "true"
+    method: "full-page"
+    notes: "The quoted recovery texts verified on the + side; the - lines show the older breaker text without the recovery documentation."
+  - id: 455
+    impact: behavioural
+    summary: "The external-key IAM role ARN field is marked deprecated, and the KMS key requirement is spelled out: on Claude Platform on AWS the key must be a single-Region "
+    verdict: "partly"
+    method: "full-page"
+    notes: "The IAM-role field was ALREADY marked deprecated in #5 ('Deprecated — Anthropic reaches the KMS key via a managed intermediate role; this field is ignored') — the deprecation is presented as news when only its wording and the new single-Region requirement changed. The KMS half is true and new."
+  - id: 477
+    impact: additive
+    summary: "Lakebase documents HIPAA support: how to enable it on projects in compliance-security-profile workspaces, the shared responsibility for PHI and the BAA, and how"
+    verdict: "true"
+    method: "full-page"
+    notes: "Same story as v1 finding 137, graded true (core) full-page: added HIPAA pages."
+  - id: 499
+    impact: additive
+    summary: "HTTP connections in Unity Catalog are generally available at the schema level — you can create an HTTP connection inside a schema."
+    verdict: "true"
+    method: "full-page"
+    notes: "The quoted release note verified in the after text; GA correctly not breaking."
+  - id: 472
+    impact: additive
+    summary: "Integrated CDC pipelines can run in continuous (always-on) mode, documented on a new page, with triggered mode remaining the default."
+    verdict: "true"
+    method: "full-page"
+    notes: "A restriction lifted, captured with both sides: '- continuous execution is not supported' -> '+ continuous mode is available in Beta', plus the added page."
+  - id: 490
+    impact: additive
+    summary: "Automatic identity management adds an Okta migration guide and a readiness report that finds external ID and group-membership divergences between Databricks and"
+    verdict: "true"
+    method: "full-page"
+    notes: "Two added pages, exactly as described."
+  - id: 468
+    impact: additive
+    summary: "Unity Gateway Skills arrive: governed SKILL.md files published to a Unity Catalog schema that agents download or load live over MCP, with grants and audit."
+    verdict: "true"
+    method: "full-page"
+    notes: "Added pages verified; v1 finding 136's story confirmed genuinely new."
+  - id: 452
+    impact: editorial
+    summary: "Admin API curl examples switch the bearer-token environment variable from `$ANTHROPIC_OAUTH_TOKEN` to `$ANTHROPIC_AUTH_TOKEN` across the admin reference."
+    verdict: "true"
+    method: "full-page"
+    notes: "The -/+ env-var pairs verified verbatim."

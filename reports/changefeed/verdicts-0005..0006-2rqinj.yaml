@@ -1,0 +1,80 @@
+# Verdict worksheet — findings from #5 -> #6, prompt v2+r+q+inj (COMBINED ARM:
+# boosted excerpts + quote rule + candidate injection). Seeded draw, graded
+# full-page against the stored blobs on 2026-09-19.
+# CAUTION recorded at grading time: the draw missed the arm's problem spots — the
+# 15-finding breaking group holds 3-4 over-labels, and finding 547 repeats arm I's
+# false 'already existed for Claude Fable 5' — so this 10/10 must be read beside
+# the cluster checks, not instead of them.
+pair: {before: 5, after: 6}
+prompt_version: "2+r+q+inj"
+selection: draw
+seed: 1
+requested: 10
+graded_at: "2026-09-19"
+source: graded against stored blobs, session of 2026-09-19
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 27, drawn: 4, weight: 6.75}
+  behavioural: {population: 19, drawn: 3, weight: 6.3333}
+  breaking: {population: 15, drawn: 2, weight: 7.5}
+  editorial: {population: 12, drawn: 1, weight: 12.0}
+verdicts:
+  - id: 513
+    impact: breaking
+    summary: "On Claude Platform on AWS, a CMEK `kms_arn` must now be a single-Region key in your own AWS account — cross-account keys, multi-Region keys and alias ARNs are r"
+    verdict: "true"
+    method: "full-page"
+    notes: "The single-Region requirement is new (absent from #5, verified); unlike arm Q's finding 455 it makes no stale deprecation claim. Breaking label fits rule 5."
+  - id: 538
+    impact: breaking
+    summary: "Change data feed now requires Databricks Runtime 19 or above, up from Databricks Runtime 18 LTS."
+    verdict: "true"
+    method: "full-page"
+    notes: "The from/to requirement verified verbatim — the fourth run to report this story, all graded true."
+  - id: 537
+    impact: behavioural
+    summary: "ABAC GRANT policies leave Beta, SQL now works for every supported securable type rather than models only, and GRANT policies appear in `INFORMATION_SCHEMA`."
+    verdict: "true"
+    method: "full-page"
+    notes: "Beta heading/callout removed, 'models only' limitation gone, removed limitations quoted verbatim and verified — the strongest version of this story any run produced."
+  - id: 564
+    impact: behavioural
+    summary: "Lakebase's direct-write path for synced tables is documented as off by default, requiring a workspace admin to turn it on."
+    verdict: "true"
+    method: "full-page"
+    notes: "'Off by default and a workspace admin must turn it on' verified on the + side; the replaced prose quoted accurately."
+  - id: 511
+    impact: behavioural
+    summary: "The Covered Models ZDR rule is now qualified: Fable and Mythos models still require 30-day retention and are \"not available under ZDR unless expressly authorize"
+    verdict: "true"
+    method: "full-page"
+    notes: "The past-quote ('ZDR is therefore not available for either model.') verified in the before text; the audit's three flags on this finding are checker artifacts ('now reads' spans classified past-side)."
+  - id: 559
+    impact: additive
+    summary: "Unity Gateway Skills let you publish governed SKILL.md instruction files to a Unity Catalog schema and have agents download them or load them live over MCP."
+    verdict: "true"
+    method: "full-page"
+    notes: "Same story as arm Q's 468, graded true: added pages."
+  - id: 507
+    impact: additive
+    summary: "The Message Batches unsupported-parameter list shrinks to `stream`, `speed` and `max_tokens: 0` — the Threads, routing-hint and research-preview rows are gone."
+    verdict: "true"
+    method: "full-page"
+    notes: "The FAQ's old and new parameter lists verified verbatim on the -/+ pair; the removed table rows quoted exactly. The audit's flags are context/artifact."
+  - id: 557
+    impact: additive
+    summary: "Databricks adds cross-workspace access (Beta) to control which source workspaces can reach a workspace over serverless traffic, configured on ingress and networ"
+    verdict: "true"
+    method: "full-page"
+    notes: "Added page plus verbatim + lines on the ingress and network-policy pages."
+  - id: 531
+    impact: additive
+    summary: "A new Agent SDK cookbook shows how to build a scheduled, read-only repository reviewer that resumes its session and returns schema-validated verdicts."
+    verdict: "true"
+    method: "full-page"
+    notes: "Added cookbook page, exactly as described."
+  - id: 533
+    impact: editorial
+    summary: "A house-style pass rewrites \"For how X, see...\" as \"To learn how X, see...\" across the Anthropic docs and repoints the Courses link to academy.claude.com."
+    verdict: "true"
+    method: "full-page"
+    notes: "The phrasing sweep verified on the -/+ pairs (same story graded true in v2's 179 evidence)."

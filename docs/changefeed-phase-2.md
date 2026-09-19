@@ -490,8 +490,14 @@ actually lost to **excerpt truncation**: `cannot` begins at character 140 of the
 line and `EXCERPT_LINE` is 140. A `RESTRICTION` lexicon now exists (`classify.py`), a
 restriction-boosted, clause-windowed excerpt sits behind `digest.py run
 --boost-restrictions` pending its graded A/B (findings record `prompt_version` `2+r`), and
-run reports carry a `classify_version` stamp. The detector sketched above is still open as
-issue/accuracy/05, and remains the only channel that can surface the Fable 5 line itself.
+run reports carry a `classify_version` stamp. The detector sketched above is **built (2026-09-19)**: `digest.py absence` scans a pair's
+added lines for restriction language naming things already in the page's before text —
+deterministic, model-free, deduplicated. On the stored pairs it yields ~117 candidates per
+run (~55–60% judged worth a reader's attention on a read sample), lists
+uncited-by-any-finding pages first, and **surfaces the Fable 5 sentence from the real
+blobs** — on a *cited* page, which is why its "cited" tag means "a finding looked here",
+never coverage. Injecting the candidates into the digest prompt is drafted and gated on a
+graded A/B in [issue/accuracy/05](../issue/accuracy/05-missed-restrictions.md).
 
 *Update (2026-09-19):* the audit also verifies **claims about the past** now — the graded
 runs' most common error class. A quote attributed to the old text must appear in the
@@ -544,6 +550,54 @@ the Fable 5 retention sentence — rank 538 of 986 because `cannot` carries no s
 ([issue/accuracy/02](../issue/accuracy/02-restriction-lexicon.md)); for that needle a
 digest-mode URL hit is necessary but not sufficient, since both graded runs cited the page
 and still missed the restriction, so `locate` mode is the meaningful automated test.
+
+### The three A/B arms (2026-09-19): boost wins, injection anchors, quoting verifies
+
+The three gated input changes each got one arm on the stored #5 → #6 pair, graded through
+the verdict ledger (seeded draw, full-page, seed 1) with the mechanical audit run over
+every finding. Total spend $11.13. The v2 baseline draw was graded the same way first —
+**70%** (7/1/2; both falses invented newness, including a previously unnoticed one:
+finding 172 reported cache-invalidation docs that already existed in #5).
+
+| arm | findings | cost | draw grade | audit flags (all findings) | the graded error clusters |
+|---|---|---|---|---|---|
+| `2+r` boosted excerpts ([02](../issue/accuracy/02-restriction-lexicon.md)) | 79 | $3.79 | **10/10 true** | **0** | Grok/GLM false newness gone; CMEK correctly `behavioural`; the 5.1 retention restriction became its own finding |
+| `2+q` quote rule ([04](../issue/accuracy/04-invented-contrast.md)) | 62 | $3.47 | 9/1/0 (90%) | 6 (≥1 true: Grok/GLM returned) | quotes appear and verify verbatim; false newness untouched |
+| `2+inj` candidate injection ([05](../issue/accuracy/05-missed-restrictions.md)) | 64 | $3.87 | 9/1/0 (90%) | 6 (≥2 true) | best absence coverage (87/117) — and the anchoring failure below |
+| v2 baseline | 63 | ($2.81) | 7/1/2 (70%) | 3 true | — |
+
+**The type specimen resisted every arm.** The Fable 5 retention sentence — the known
+miss — was reported by no arm as its own finding. The boost got its 5.1 twin reported
+(the excerpt's two slots carried exactly that clause; the Fable 5 line is the page's
+third restriction line). The injection put the sentence itself in the prompt, and the
+model wrote it as "the same condition *already documented* for Claude Fable 5" — false,
+and precisely the neutralising move: surfaced, then dismissed by an invented past.
+That failure is [07](../issue/accuracy/07-reappearing-lines.md)'s case for edited-line
+pairing, not another prompt patch.
+
+**The combined arm (`2+r+q+inj`, $4.13, 73 findings)** answers "all of them at once":
+its seeded draw also grades **10/10** — and the cluster checks show why that number
+alone would mislead. `breaking` ballooned to 15 with 3–4 over-labels (a C# *example*
+change; the CMEK doc-widening v2 was already graded down for; a verified *relaxation* —
+job-metrics prerequisites — framed as a new requirement), the absence coverage fell to
+68/117 (below every arm including baseline — the injection's coverage gain vanished in
+combination), and finding 547 reproduces arm I's neutralisation verbatim: the Fable 5.1
+restriction quoted exactly, then "the same note already existed for Claude Fable 5" —
+false, twice now, in both runs that injected. The quote rule's extra quoting also
+inflates artifact flags (10 raw, mostly parser limits), so raw flag counts stop being
+comparable across arms once quoting enters. The draw hit none of these spots — the
+per-cluster checks, not the sample rate, carry the verdict.
+
+**Adoption:** the boost alone is recommended for default (Doug's call — flip the flag and
+fold `+r` into the next PROMPT_VERSION); the quote rule and the injection are not
+adopted, singly or in combination.
+Caveat stated once: n=10 per arm on one launch-week pair — the flag counts over all
+findings and the per-cluster checks point the same way as the draw rates, but a
+confirming boost run on #6 → #7 (~$5) is the cheap way to be surer. The quote volume of
+`2+q` also exposed three parsing limits in `audit.quoted_claims` (escaped quotes,
+sentence splits inside quotes, "now read …" verbs) — harden before trusting its flags at
+that volume. All arms are preserved in `changes.db` under their `prompt_version`s;
+v2 was restored as the current set and renders byte-identical to the committed digest.
 
 ## What would change this decision
 

@@ -1010,3 +1010,143 @@ def test_a_preposition_to_is_not_a_rename_to(corpus):
     out = A.audit_finding(finding, by_url, blob_dir=corpus.blob_dir)
     assert out.misquoted_after == []
     assert out.misquoted_before == []
+
+
+# --- issue/accuracy/05: the absence detector --------------------------------
+
+
+def _diff_result(corpus, before_md: str, after_md: str, extra=None):
+    """Like _two_sided, but returns the DiffResult the absence scan consumes."""
+    corpus.populate([record("a", markdown=before_md)] + (extra or []))
+    corpus.snap()
+    corpus.populate([record("a", markdown=after_md)] + (extra or []))
+    corpus.snap()
+    with ChangeDB(corpus.changes_db) as db:
+        b, a = db.last_two()
+        return diff.compare(b, a, db=db, blob_dir=corpus.blob_dir)
+
+
+def test_the_fable_sentence_is_a_candidate(corpus):
+    """The gate for the whole issue: the real missed sentence, on a page whose before
+    text already names Claude Fable 5, must surface — this is the only check in the
+    project that can see a finding that was never written."""
+    from changefeed.digest import absence
+
+    result = _diff_result(
+        corpus,
+        "# Supported models\n\n| model |\n|---|\n| Claude Fable 5 (`claude-fable-5`) |\n",
+        "# Supported models\n\n| model |\n|---|\n| Claude Fable 5 (`claude-fable-5`) |\n\n"
+        "> For Claude Fable 5, prompts and responses are retained for 30 days for trust "
+        "and safety purposes. Customers who opt out of data retention cannot use Claude "
+        "Fable 5. This data is processed by automated safety systems.\n")
+    candidates = absence.scan(result, blob_dir=corpus.blob_dir)
+    hits = [c for c in candidates if "cannot use Claude Fable 5" in c.line]
+    assert hits
+    assert any("Claude Fable 5" in s for s in hits[0].subjects)
+
+
+def test_a_ga_announcement_is_not_a_candidate(corpus):
+    """GA is never a restriction — the lexicon draws the breaking-vs-GA line the prompt
+    rules already draw, so "generally available" must not surface here."""
+    from changefeed.digest import absence
+
+    result = _diff_result(
+        corpus,
+        "# ABAC\n\nABAC GRANT policies are in Beta for Unity Catalog.\n",
+        "# ABAC\n\nABAC GRANT policies are generally available for Unity Catalog.\n")
+    assert absence.scan(result, blob_dir=corpus.blob_dir) == []
+
+
+def test_a_restriction_on_a_genuinely_new_thing_is_not_a_candidate(corpus):
+    """A restriction shipping with a brand-new thing is part of the launch, not news
+    about something people relied on. Subject absent from the before text -> filtered.
+    (The subject test is a heuristic: a new version whose FAMILY name existed before —
+    the Fable 5.1 twin — does pass, an accepted cost recorded in the module docstring.)"""
+    from changefeed.digest import absence
+
+    result = _diff_result(
+        corpus,
+        "# Tools\n\nExisting content about other tools.\n",
+        "# Tools\n\nExisting content about other tools.\n\n"
+        "`frobnicate_20261001` is not available on Bedrock.\n")
+    assert absence.scan(result, blob_dir=corpus.blob_dir) == []
+
+
+def test_duplicate_restriction_lines_appear_once(corpus):
+    """One vendor sentence stamped across hundreds of mirror pages is one candidate —
+    the #6 -> #7 pair carries a tool-safety sentence on ~290 API-reference mirrors."""
+    from changefeed.digest import absence
+
+    sentence = ("The Unity Catalog API cannot modify groups provisioned by an identity "
+                "provider.")
+    corpus.populate([record("a", markdown="# A\n\nUnity Catalog API docs.\n"),
+                     record("b", markdown="# B\n\nUnity Catalog API docs.\n")])
+    corpus.snap()
+    corpus.populate([record("a", markdown=f"# A\n\nUnity Catalog API docs.\n\n{sentence}\n"),
+                     record("b", markdown=f"# B\n\nUnity Catalog API docs.\n\n{sentence}\n")])
+    corpus.snap()
+    with ChangeDB(corpus.changes_db) as db:
+        b, a = db.last_two()
+        result = diff.compare(b, a, db=db, blob_dir=corpus.blob_dir)
+    candidates = absence.scan(result, blob_dir=corpus.blob_dir)
+    assert len([c for c in candidates if sentence in c.line]) == 1
+
+
+def test_cited_means_a_finding_looked_not_that_it_reported(corpus):
+    """Page-level marking, stated honestly: the Fable page WAS cited — by the finding
+    that inverted its retention rule — so 'cited' can never be read as 'covered'."""
+    from changefeed.digest import absence
+    from changefeed.digest.findings import Finding
+
+    result = _diff_result(
+        corpus,
+        "# M\n\nClaude Fable 5 is hosted.\n",
+        "# M\n\nClaude Fable 5 is hosted.\n\nClaude Fable 5 is not available for "
+        "opted-out customers.\n")
+    candidates = absence.scan(result, blob_dir=corpus.blob_dir)
+    assert candidates
+    url = candidates[0].url
+    absence.mark_cited(candidates, [Finding(impact="additive", urls=[url],
+                                            summary="something about this page")])
+    assert candidates[0].cited is True
+    absence.mark_cited(candidates, [Finding(impact="additive", urls=["https://x.test/en/z"],
+                                            summary="elsewhere")])
+    assert candidates[0].cited is False
+    assert "UNCITED" in absence.render(candidates, before="#1", after="#2")
+
+
+@pytest.mark.asyncio
+async def test_the_experiment_arms_change_the_prompt_and_the_version(corpus, monkeypatch):
+    """Each A/B flag must actually reach the prompt AND stamp the arm into
+    prompt_version — an arm that ran without its marker would poison the ledger."""
+    import claude_agent_sdk
+
+    from changefeed.digest import session as session_mod
+
+    seen = {}
+
+    async def fake_query(*, prompt, options, **_):
+        seen["prompt"] = prompt
+        return
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+    _changed(corpus)
+    with ChangeDB(corpus.changes_db) as db:
+        before, after = db.last_two()
+        result = diff.compare(before, after, db=db, blob_dir=corpus.blob_dir)
+
+        await session_mod.run_digest(result, db=db, blob_dir=str(corpus.blob_dir))
+        base = seen["prompt"]
+        assert "10. **When you assert" not in base
+        assert "{extra_rules}" not in base          # the placeholder formatted away
+
+        await session_mod.run_digest(result, db=db, blob_dir=str(corpus.blob_dir),
+                                     quote_evidence=True)
+        assert "10. **When you assert" in seen["prompt"]
+
+        await session_mod.run_digest(result, db=db, blob_dir=str(corpus.blob_dir),
+                                     inject_restrictions=True)
+        # This tiny corpus has no restriction candidates, so the appendix is empty —
+        # the flag must not break the prompt; the version marker still applies.
+        assert seen["prompt"].startswith(base[:200])

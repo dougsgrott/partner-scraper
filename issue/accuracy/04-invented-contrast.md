@@ -1,7 +1,7 @@
 # 04 — Verify claims about the past, not only claims of newness
 
-**Status:** measured and implemented (2026-09-19), uncommitted — the quote check ships,
-term overlap is rejected by the numbers, option B is drafted and gated on its A/B ·
+**Status:** done (2026-09-19), uncommitted — the quote check ships; option B's A/B run
+and graded (90%, rule followed but other error classes untouched; not adopted) ·
 **Kind:** code + measurement · **Effort:** ~3–4 h
 **Depends on:** [01](01-verdict-ledger.md) for FP measurement · **Blocks:** nothing
 
@@ -73,9 +73,18 @@ flag/FP/FN rates against the graded ledger, using the known real cases as the FN
 - [x] Contrast-claim frequency per run measured and recorded here
 - [x] A's precision on graded findings measured; the A/B/C decision made on those numbers
       and recorded here
-- [ ] If B is adopted: `PROMPT_VERSION` bumped, one stored-pair re-run graded through
-      [01](01-verdict-ledger.md) before default — **B is recommended and drafted below,
-      not adopted; the re-run costs ~$3–5 and is Doug's call**
+- [x] B's A/B: **run and graded 2026-09-19** (`prompt_version` `2+q`, $3.47, 62
+      findings). Seeded-draw full-page grade **9/1/0 (90%)** vs baseline 70%. The rule
+      is visibly followed — findings quote the old text and the quotes verify (the ZDR
+      finding quotes the old Covered-Models sentence verbatim; the CDF finding quotes
+      both requirement texts) — but it does not touch the other error classes: the
+      Grok/GLM false newness recurred in full (caught by the audit), and the one
+      `partly` was a stale deprecation presented as news, not a contrast claim. The
+      induced quote volume also exposed three parsing limits in the verifier (escaped
+      quotes inside quotes, sentence-splitting inside quoted text, and "now read
+      \"Y\"" not classified present-side) — harden `quoted_claims` before trusting
+      its flags at this volume. Not adopted as default; arm R measured better on the
+      same pair
 
 ## Tests
 

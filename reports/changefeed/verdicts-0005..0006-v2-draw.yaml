@@ -1,0 +1,78 @@
+# Verdict worksheet — findings from #5 -> #6, prompt v2: the SEEDED DRAW, full-page.
+# Graded 2026-09-19 against the stored blobs. This is the unbiased v2 figure the
+# ledger showed was missing (the earlier v2 set was targeted at v1's errors).
+# Note: finding 171 appears in both sets; this import updates its (finding, method)
+# row's selection to draw — same verdict, the targeted worksheet remains provenance.
+pair: {before: 5, after: 6}
+prompt_version: "2"
+selection: draw
+seed: 1
+requested: 10
+graded_at: "2026-09-19"
+source: graded against stored blobs, session of 2026-09-19
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 31, drawn: 5, weight: 6.2}
+  behavioural: {population: 19, drawn: 3, weight: 6.3333}
+  breaking: {population: 4, drawn: 1, weight: 4.0}
+  editorial: {population: 9, drawn: 1, weight: 9.0}
+verdicts:
+  - id: 189
+    impact: breaking
+    summary: "Change data feed now requires Databricks Runtime 19 or above, where the requirement was previously Databricks Runtime 18 LTS or above."
+    verdict: "true"
+    method: "full-page"
+    notes: "The from/to requirement lines verified verbatim (- DBR 18 LTS, + DBR 19); the release-note detail confirmed."
+  - id: 214
+    impact: behavioural
+    summary: "Setting delta.deletedFileRetentionDuration below 7 days no longer shortens retention under predictive optimization: data files are still kept for a minimum of 7"
+    verdict: "partly"
+    method: "full-page"
+    notes: "The 7-day minimum under predictive optimization is real and newly documented, but 'no longer shortens' asserts a prior behaviour the page never states — the invented-contrast shape, mild form."
+  - id: 168
+    impact: behavioural
+    summary: "Managed-agent examples now use a declarative `ant apply <file>` instead of piping YAML into `ant beta:environments create` / `ant beta:agents create`, and a new"
+    verdict: "true"
+    method: "full-page"
+    notes: "cli/apply is an added page; the examples' - and + lines show the piping-to-apply switch across the managed-agents pages."
+  - id: 172
+    impact: behavioural
+    summary: "Changing the top-level effort value or the thinking configuration between requests invalidates the prompt cache."
+    verdict: "false"
+    method: "full-page"
+    notes: "Presents pre-existing documentation as this window's change: the prompt-caching 'Effort setting' row existed in #5, the thinking page's 'Configuration changes invalidate caching' existed in #5, and the effort guide's claimed added phrase ('hold top-level effort constant') is not on the after page at all."
+  - id: 196
+    impact: additive
+    summary: "A new \"built-in MCP services\" page documents Databricks-provided MCP Services for workspace tools and SaaS apps, and existing MCP server pages were retitled and"
+    verdict: "true"
+    method: "full-page"
+    notes: "The page is added; the old #prebuilt content and repointed links corroborate the retitle-and-split description."
+  - id: 209
+    impact: additive
+    summary: "Git Folder Serverless (Beta) lets notebooks and files in a Git folder share one compute resource and an environment managed by pyproject.toml."
+    verdict: "true"
+    method: "full-page"
+    notes: "New page plus index links, all on the + side."
+  - id: 171
+    impact: additive
+    summary: "The Python, TypeScript, Go, Java, Ruby, PHP and C# SDKs now support `code_execution_20260120`."
+    verdict: "false"
+    method: "full-page"
+    notes: "The code_execution_20260120 release note was already in #5 — same verdict as the targeted grade this row replaces (the ledger keys one verdict per finding and method; selection updates to draw)."
+  - id: 208
+    impact: additive
+    summary: "Feature Store adds a SawtoothWindow time-window class that keeps long aggregation windows (30, 60, 90 days) continuously fresh by computing the historic part in"
+    verdict: "true"
+    method: "full-page"
+    notes: "SawtoothWindow absent from every before text, documented across the + lines. The detail appends two side stories, but the summary is one story and correct."
+  - id: 176
+    impact: additive
+    summary: "New beta endpoints let you retrieve and update an organization's compliance settings."
+    verdict: "true"
+    method: "full-page"
+    notes: "Three added reference pages, exactly as described."
+  - id: 181
+    impact: editorial
+    summary: "\"Databricks Data Intelligence Platform\" is being replaced with \"Databricks Data + AI Platform\" (and \"Lakehouse platform\") across architecture and getting-starte"
+    verdict: "true"
+    method: "full-page"
+    notes: "The rename verified verbatim on the -/+ line pairs across the cited pages."
