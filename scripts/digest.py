@@ -159,10 +159,11 @@ def cmd_audit(args) -> int:
     print("strata: " + "  ".join(
         f"{impact} {s['drawn']}/{s['population']} (weight {s['weight']})"
         for impact, s in strata.items()))
-    flagged = sum(1 for a in audits if a.already_present)
+    flagged = sum(1 for a in audits
+                  if a.already_present or a.misquoted_before or a.misquoted_after)
     if flagged:
-        print(f"\n! {flagged} finding(s) claim something is new that already existed before "
-              f"— check those first.")
+        print(f"\n! {flagged} finding(s) claim something about the old or new text that "
+              f"the stored text does not support — check those first.")
     for i, a in enumerate(audits, 1):
         print(audit.render(a, i))
     return 0

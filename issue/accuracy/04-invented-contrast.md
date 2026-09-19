@@ -1,6 +1,8 @@
 # 04 — Verify claims about the past, not only claims of newness
 
-**Status:** open (2026-09-18) · **Kind:** code + measurement · **Effort:** ~3–4 h
+**Status:** measured and implemented (2026-09-19), uncommitted — the quote check ships,
+term overlap is rejected by the numbers, option B is drafted and gated on its A/B ·
+**Kind:** code + measurement · **Effort:** ~3–4 h
 **Depends on:** [01](01-verdict-ledger.md) for FP measurement · **Blocks:** nothing
 
 ## Problem
@@ -66,16 +68,77 @@ flag/FP/FN rates against the graded ledger, using the known real cases as the FN
 
 ## Acceptance criteria
 
-- [ ] The "previously framed as a support note" case — the real recorded text — is a test:
+- [x] The "previously framed as a support note" case — the real recorded text — is a test:
       unflagged by the current audit, flagged by the new check
-- [ ] Contrast-claim frequency per run measured and recorded here
-- [ ] A's precision on graded findings measured; the A/B/C decision made on those numbers
+- [x] Contrast-claim frequency per run measured and recorded here
+- [x] A's precision on graded findings measured; the A/B/C decision made on those numbers
       and recorded here
 - [ ] If B is adopted: `PROMPT_VERSION` bumped, one stored-pair re-run graded through
-      [01](01-verdict-ledger.md) before default
+      [01](01-verdict-ledger.md) before default — **B is recommended and drafted below,
+      not adopted; the re-run costs ~$3–5 and is Doug's call**
 
 ## Tests
 
 - the motivating real finding text flags against the real before-body
 - a *correct* contrast claim from a graded-true finding does not flag
 - trigger lexicon: past-tense phrasing variants from stored findings, not invented ones
+
+## Measured (2026-09-19)
+
+**Frequency** (all 231 stored findings, summary + detail): "previously" appears in 2–10
+findings per run; all past-triggers together mark ~25–35 findings per run. Quoted spans
+in past context: **26 across the four runs (~6 per run)**; past-trigger sentences
+*without* a quote: 115 (~29 per run). Small enough that C — a standing verifier call —
+is absurd, as the issue predicted.
+
+**A-terms (term overlap on no-quote past-sentences): rejected, ~90% false.** Of 27
+sentence-level hits, nearly all were the *new* side of rename claims ("renamed
+`BUNDLE_ROOT` → `DATABRICKS_BUNDLE_ROOT`" flags the new name as absent-from-before —
+of course it is), passive-voice "was/were" noise ("examples were rewritten to …"), or
+labels the model coined itself ("the earlier yaml-on-stdin idiom"). The direction
+problem that bit the excerpts and the model bites naive term checking identically.
+
+**A-quote (verify quoted spans, sided): admitted — final precision 2/2, recall on the
+graded cases 1/3, boundaries recorded.** The raw pass flagged 9 of 26 quotes; reading
+every one reshaped the check three times, each from a real text:
+
+- three flags were the **to-side** of `changed from "X" to "Y"` checked against the
+  before text — a to-quote asserts the *new* text and must check the after text;
+- `" was renamed to "` was a quote-pairing artifact (length-filtering before pairing
+  let the regex pair a closing quote with the next opening one);
+- `"anthropic-workspace-id"` is emphasis, not quotation (now: ≥3 words), and
+  `"For how X…"` is an elided template (now: no ellipsis);
+- after those fixes the first real run produced one **new** false positive: finding
+  199's true statement `pages that linked to "Enrich data using AI Functions"` — a
+  prepositional "to", not a rename's to-side. The to-rule now requires a preceding
+  from-quote or a rename verb. Caught by reading the real audit output.
+
+Final state on the real pairs: **two flags, both genuine** — finding 237's "support
+note" quote (absent from the before text, present in the AFTER text: the model quoted
+the new page as the old — the motivating case) and finding 202's `"BASIC reports only"`
+(the old page says "The connector only supports ingestion of BASIC reports": right
+substance, fabricated quotation). Zero flags on #1 → #2. Known, accepted misses:
+quantifier falsity (finding 158's "previously excluded **only** …" — every named term
+IS in the old text) and contrast asserted with no trigger at all (finding 253) — the
+latter is [07](07-reappearing-lines.md)'s territory (the −/+ pair of the edited
+sentence), not a text-side check's.
+
+## Done (2026-09-19)
+
+`audit.quoted_claims()` extracts sided quote-claims; `audit_finding` verifies past-side
+quotes against the before text and to-side quotes against the after text of the cited
+pages (markup-insensitive), reporting whether a missing quote appears on the *other*
+side — "likely quoting the new page as the old" is finding 237's exact mistake. The
+all-added unverifiable note now also covers contrast claims. Six tests, every one from
+a real recorded finding text (237, 160, 202, 226+179, 158, 199), including the two
+honest-boundary tests that assert a known miss stays unflagged.
+
+**Option B, drafted for adoption (PROMPT_VERSION 3, gated on one graded ~$3–5 re-run):**
+add to the prompt rules — *"When you assert what the old text said or lacked
+('previously …', 'was …', 'renamed from …'), quote the exact old line in double quotes,
+or write 'absent before'. Quoted lines are verified verbatim against the stored before
+text."* B composes with the shipped check: every quote the rule induces lands in the
+verifier, converting the paraphrase class (the check's main blind spot) into the quote
+class (where measured precision is 2/2). **C is rejected**: ~6 quote-claims per run do
+not justify a standing model call, and the remaining paraphrase misses are bounded and
+recorded rather than silent.

@@ -40,6 +40,18 @@ _STOP = frozenset(["the", "and", "for", "with", "that", "this", "from", "are", "
 #
 # Prose matters: the first version matched only id forms, and the real finding that motivated
 # the check wrote "Grok 4.6". Its synthetic test used an id and passed; the real case did not.
+#
+# The dotted-version requirement looks like an accident of that incident. It is not — it was
+# re-derived by measurement (issue/accuracy/03, 2026-09-18). Every broadening tried against
+# all 231 stored findings multiplied false flags without catching a single real graded error:
+# single-number names ("Mythos 5", "DBR 18") flag as context on 6 of 6 findings, because
+# established things are named with bare numbers and newly-versioned things with dotted ones;
+# backticked terms without digits flag ~25 findings of SQL-keyword and common-word collisions
+# ("FILE", "auto", "effort"); and checking the whole before corpus instead of cited pages
+# would have flagged nine true launch findings at once, because one cookbook page mentioned
+# Claude Fable 5.1 early. The graded errors these were meant to catch are out of reach on a
+# different axis: finding 253 asserts contrast with no newness verb (issue/accuracy/04), and
+# 252's "DENY" is invisible to every extractor measured (issue/accuracy/05's territory).
 _VERSIONED_NAME = re.compile(
     r"\b[A-Z][A-Za-z]*(?:\s[A-Z][A-Za-z]*)?\s\d+(?:\.\d+)+(?:\s[A-Z][a-z]+)?\b")
 _VERSIONED_ID = re.compile(r"\b[A-Za-z][A-Za-z]*-\d+(?:\.\d+)+\b")      # GLM-5.3
@@ -47,9 +59,89 @@ _BACKTICK = re.compile(r"`([^`\n]{3,60})`")
 _HYPHEN_ID = re.compile(r"\b[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}\b")
 _SEPARATORS = re.compile(r"[\s._-]+")
 
+# Cloud regions match _HYPHEN_ID and carry a digit, but a region in a headline is where
+# something became available, not the thing that became available — "did this region exist
+# before" can never answer the claim. Both standing false positives were this shape
+# (finding 91: "…extended beyond us-east-1"; finding 192: "…rather than us-east-1 only"),
+# and no true flag has ever been a region.
+_REGION = re.compile(r"^(?:us|eu|ap|ca|sa|me|af|il|cn)(?:-gov)?-[a-z]+-\d$")
+
 # A finding that says one of these is claiming something did not exist before.
 _NEWNESS = re.compile(r"\b(new|add|added|adds|introduc\w*|launch\w*|now available|debut\w*)\b",
                       re.IGNORECASE)
+
+# --- claims about the past (issue/accuracy/04) -----------------------------
+#
+# The graded runs' most common error is invented contrast: asserting what the old text
+# said without checking. Term overlap cannot verify a paraphrase — measured on all
+# stored findings, ~90% of its hits were the *new* side of rename claims and passive
+# "was/were" noise — but a QUOTE carries direction and wording, and the model quotes
+# often: `changed from "X" to "Y"`, `previously framed this as ("…")`. So exactly the
+# quoted spans are verified: a from-/past-context quote must appear in the BEFORE text
+# of the cited pages, a to-quote in the AFTER text. On the stored findings this flags
+# two and only two claims, both genuine: finding 237's "support note" quote (which
+# exists only on the NEW page) and finding 202's `"BASIC reports only"` (the old page
+# says "The connector only supports ingestion of BASIC reports" — right substance,
+# fabricated quotation). Known, accepted misses: falsity carried by a quantifier
+# ("previously excluded only …", finding 158) and contrast asserted with no trigger at
+# all (finding 253) — those need issue/accuracy/07's edited-line pairing, not this.
+_PAST_CONTEXT = re.compile(
+    r"\b(previously|used to|until (?:now|then)|formerly|earlier|was|were|had)\b",
+    re.IGNORECASE)
+# Verbs whose "to" introduces the new text ("renamed to", "changed to"); any other
+# "to" before a quote is a preposition. From the phrasings in stored findings.
+_RENAME_VERBS = frozenset(
+    ["renamed", "changed", "moved", "switched", "retitled", "updated", "went",
+     "rewritten", "rewrites"])
+_QUOTE_SPAN = re.compile(r"[\"“]([^\"“”]{1,240})[\"”]")
+_SENTENCES = re.compile(r"(?<=[.!?;])\s+")
+_MARKUP = re.compile(r"[*_`\[\]()|>#\"“”]")
+
+
+def _loose(text: str) -> str:
+    """Case- and markup-insensitive form for matching quoted prose against a body.
+
+    `_normalise` is for identifiers; a quoted sentence has to survive the body's links
+    and emphasis — "client tools and the [advisor tool](url)" must contain
+    "client tools and the advisor tool".
+    """
+    return re.sub(r"\s+", " ", _MARKUP.sub(" ", text.lower())).strip()
+
+
+def quoted_claims(finding: Finding) -> tuple[list[str], list[str]]:
+    """Quoted spans asserting text: `(about the old text, about the new text)`.
+
+    A span right after "from" is the old text, right after "to" the new; any other
+    quote in a past-context sentence is the old. Only spans of at least three words
+    are claims — a single quoted token is emphasis, not quotation — and an elided
+    quote ("For how X…") is an abbreviation by construction, unverifiable verbatim.
+    """
+    text = f"{finding.summary} {finding.detail or ''}"
+    past: list[str] = []
+    present: list[str] = []
+    for sent in _SENTENCES.split(text):
+        has_past = bool(_PAST_CONTEXT.search(sent))
+        saw_from_quote = False
+        for m in _QUOTE_SPAN.finditer(sent):
+            quote = m.group(1).strip()
+            if len(quote) < 12 or len(quote.split()) < 3 or "…" in quote or "..." in quote:
+                continue
+            words = sent[:m.start()].lower().split()
+            last = words[-1] if words else ""
+            prev = words[-2] if len(words) > 1 else ""
+            if last in ("from", "(from"):
+                past.append(quote)
+                saw_from_quote = True
+            elif last in ("to", "into") and (saw_from_quote or prev in _RENAME_VERBS):
+                # Only a rename's to-side is a claim about the new text. A bare
+                # preposition is not: real finding 199 writes `pages that linked to
+                # "Enrich data using AI Functions"` — a true statement about the OLD
+                # title, which the first version of this rule flagged as a misquote
+                # of the new text.
+                present.append(quote)
+            elif has_past:
+                past.append(quote)
+    return past, present
 
 
 @dataclass
@@ -71,6 +163,15 @@ class Audit:
     evidence: list[Evidence] = field(default_factory=list)
     shown_pages: int = 0
     already_present: list[str] = field(default_factory=list)
+    # The newness check needs before text, and a finding whose cited pages are all new
+    # has none. That used to skip in silence — and a finding about a brand-new page is
+    # precisely where a false "first time" claim is cheapest to make, so the reader must
+    # be told the check could not run rather than left to assume it passed.
+    newness_unverifiable: bool = False
+    # Quoted assertions about the old or new text that the text does not contain —
+    # (quote, found_on_the_other_side). See `quoted_claims`.
+    misquoted_before: list[tuple[str, bool]] = field(default_factory=list)
+    misquoted_after: list[tuple[str, bool]] = field(default_factory=list)
 
 
 def claim_terms(finding: Finding) -> set[str]:
@@ -89,7 +190,8 @@ def identifiers(finding: Finding) -> set[str]:
     found = set(_VERSIONED_NAME.findall(text)) | set(_VERSIONED_ID.findall(text))
     found |= {m.strip() for m in _BACKTICK.findall(text)}
     found |= set(_HYPHEN_ID.findall(text.lower()))
-    return {f for f in found if len(f) >= 4 and any(ch.isdigit() for ch in f)}
+    return {f for f in found
+            if len(f) >= 4 and any(ch.isdigit() for ch in f) and not _REGION.fullmatch(f)}
 
 
 def _normalise(text: str) -> str:
@@ -157,11 +259,25 @@ def audit_finding(finding: Finding, by_url: dict[str, PageChange], *, blob_dir=N
     # deprecation will name things that existed before, correctly. A name must also survive
     # into the AFTER text: "now pins claude-opus-4-8 instead of claude-opus-4-1" names the old
     # one on purpose, and it is the thing that disappeared.
-    if claims_newness(finding) and befores:
-        old_text = _normalise("\n".join(befores))
-        new_text = _normalise("\n".join(afters))
-        out.already_present = sorted(i for i in identifiers(finding)
-                                     if _normalise(i) in old_text and _normalise(i) in new_text)
+    past_quotes, present_quotes = quoted_claims(finding)
+    if befores:
+        if claims_newness(finding):
+            old_text = _normalise("\n".join(befores))
+            new_text = _normalise("\n".join(afters))
+            out.already_present = sorted(i for i in identifiers(finding)
+                                         if _normalise(i) in old_text and _normalise(i) in new_text)
+        # The mirror check: a quoted assertion about the old text must be in the before
+        # text, one about the new text in the after text. Whether the missing quote
+        # appears on the *other* side is reported too — "quoted the new page as the old"
+        # is the exact mistake of graded finding 237.
+        old_loose = _loose("\n".join(befores))
+        new_loose = _loose("\n".join(afters))
+        out.misquoted_before = [(q, _loose(q) in new_loose) for q in past_quotes
+                                if _loose(q) not in old_loose]
+        out.misquoted_after = [(q, _loose(q) in old_loose) for q in present_quotes
+                               if _loose(q) not in new_loose]
+    elif claims_newness(finding) or past_quotes or present_quotes:
+        out.newness_unverifiable = True
     return out
 
 
@@ -195,6 +311,22 @@ def render(audit: Audit, index: int) -> str:
     if audit.already_present:
         out.append("   ! claims something is new, but these already appeared in the BEFORE "
                    "text of its cited pages: " + ", ".join(audit.already_present[:8]))
+    if audit.newness_unverifiable:
+        out.append("   ! claims newness or contrast with the past, but no before text exists "
+                   "for its cited pages (all new or unreadable) — the check could NOT run; "
+                   "verify by hand")
+    for quote, on_other_side in audit.misquoted_before[:4]:
+        line = (f'   ! quotes the old text as saying "{quote[:120]}" — not found in the '
+                f"BEFORE text of its cited pages")
+        if on_other_side:
+            line += " (it IS in the AFTER text: likely quoting the new page as the old)"
+        out.append(line)
+    for quote, on_other_side in audit.misquoted_after[:4]:
+        line = (f'   ! quotes the new text as saying "{quote[:120]}" — not found in the '
+                f"AFTER text of its cited pages")
+        if on_other_side:
+            line += " (it IS in the BEFORE text: likely quoting the old page as the new)"
+        out.append(line)
     for ev in audit.evidence:
         out.append(f"\n   --- {ev.url.split('/en/')[-1]}")
         if ev.note:

@@ -795,3 +795,218 @@ def test_the_window_never_rewinds_the_match_off_screen():
     clipped = _clip(line, boost=True)
     assert "cannot" in clipped
     assert len(clipped) <= EXCERPT_LINE + 1  # the ellipsis
+
+
+# --- issue/accuracy/03: what the newness check may and may not see --------
+
+
+def test_a_region_in_the_headline_is_not_an_identifier():
+    """From real finding 192, the standing false positive: "…rather than us-east-1 only"
+    names the region as the old state. A region is where something became available,
+    never the thing that became available, so "did it exist before" cannot answer the
+    claim. Finding 91 was the same shape a run earlier and went unrecorded."""
+    from changefeed.digest.audit import identifiers
+    from changefeed.digest.findings import Finding
+
+    finding = Finding(impact="additive", urls=[],
+                      summary="Lakebase adds HIPAA support — enablement, audit logging and "
+                              "shared-responsibility pages — and PCI-DSS and HITRUST now "
+                              "cover all AWS regions where Lakebase is available rather "
+                              "than us-east-1 only.")
+    assert "us-east-1" not in identifiers(finding)
+    # The exclusion is shape-based, not a blocklist of one:
+    finding2 = Finding(impact="additive", urls=[],
+                       summary="Feature X added in eu-west-1 and us-gov-west-1")
+    assert not identifiers(finding2) & {"eu-west-1", "us-gov-west-1"}
+
+
+def test_a_region_on_both_sides_no_longer_flags(corpus):
+    """End to end: the finding-192 shape, with the region present in before and after
+    text of the cited page, produces no already_present flag."""
+    from changefeed.digest.audit import audit_finding
+    from changefeed.digest.findings import Finding
+
+    by_url = _two_sided(
+        corpus,
+        "# Lakebase\n\nPCI-DSS applies in us-east-1.\n",
+        "# Lakebase\n\nPCI-DSS and HITRUST apply in all regions, was us-east-1.\n")
+    finding = Finding(impact="additive", urls=list(by_url),
+                      summary="Lakebase adds HIPAA; PCI-DSS now covers all AWS regions "
+                              "rather than us-east-1 only")
+    assert audit_finding(finding, by_url, blob_dir=corpus.blob_dir).already_present == []
+
+
+def test_an_all_added_finding_says_the_newness_check_could_not_run(corpus):
+    """A finding whose cited pages are all new has no before text; the check used to
+    skip in silence, and silence reads as a pass. Four stored findings sit in this
+    state today. The audit must say the check could not run."""
+    from changefeed.digest import audit as A
+    from changefeed.digest.findings import Finding
+
+    corpus.populate([record("old")])
+    corpus.snap()
+    corpus.populate([record("old"), record("brand-new-page",
+                                           markdown="# New\n\nA new API, `frobnicate_20261001`.")])
+    corpus.snap()
+    with ChangeDB(corpus.changes_db) as db:
+        b, a = db.last_two()
+        result = diff.compare(b, a, db=db, blob_dir=corpus.blob_dir)
+    by_url = {c.url: c for c in result.changes}
+    added_urls = [u for u, c in by_url.items() if c.kind == "added"]
+
+    finding = Finding(impact="additive", urls=added_urls,
+                      summary="A new `frobnicate_20261001` API is added")
+    out = A.audit_finding(finding, by_url, blob_dir=corpus.blob_dir)
+    assert out.newness_unverifiable
+    assert out.already_present == []
+    assert "could NOT run" in A.render(out, 1)
+
+    # And a finding with ordinary modified pages does not carry the note.
+    by_url2 = _two_sided(corpus, "# P\n\nold text\n", "# P\n\nnew text, adds `thing_v2_0`\n")
+    finding2 = Finding(impact="additive", urls=list(by_url2), summary="adds `thing_v2_0`")
+    assert not A.audit_finding(finding2, by_url2, blob_dir=corpus.blob_dir).newness_unverifiable
+
+
+# --- issue/accuracy/04: quoted claims about the past are verified ---------
+
+
+def test_a_fabricated_quote_of_the_old_text_flags(corpus):
+    """Graded finding 237, the motivating case: the detail attributes to the old page a
+    sentence — "supports client tools and the advisor tool" — that exists only on the
+    NEW page. The flag must say both halves: absent from before, present in after."""
+    from changefeed.digest import audit as A
+    from changefeed.digest.findings import Finding
+
+    by_url = _two_sided(
+        corpus,
+        "# Token counting\n\nCount tokens before sending a request.\n",
+        "# Token counting\n\n> Token counting supports client tools and the "
+        "[advisor tool](https://x.test/advisor), but returns an `invalid_request_error` "
+        "for server tools.\n")
+    finding = Finding(
+        impact="behavioural", urls=list(by_url),
+        summary="Token counting now documents that it returns an `invalid_request_error` "
+                "for a few inputs the Messages API accepts, including server tools.",
+        detail='The page previously framed this as a support note ("supports client '
+               'tools and the advisor tool") rather than naming the error.')
+    out = A.audit_finding(finding, by_url, blob_dir=corpus.blob_dir)
+    assert [(q, other) for q, other in out.misquoted_before] == \
+        [("supports client tools and the advisor tool", True)]
+    assert "likely quoting the new page as the old" in A.render(out, 1)
+
+
+def test_a_true_from_to_quote_pair_does_not_flag(corpus):
+    """Graded finding 160 quotes both sides of the CMEK change verbatim and truly. The
+    from-quote checks against the before text, the to-quote against the after — the
+    to-side must never be flagged for being absent from the before text, which is what
+    the first measurement pass got wrong on three findings."""
+    from changefeed.digest import audit as A
+    from changefeed.digest.findings import Finding
+
+    by_url = _two_sided(
+        corpus,
+        "# CMEK\n\n| feature | note |\n|---|---|\n| structured outputs | not available "
+        "for Claude Fable 5 or Claude Mythos models in CMEK organizations |\n",
+        "# CMEK\n\n| feature | note |\n|---|---|\n| structured outputs | not available "
+        "for Claude Fable or Claude Mythos models in CMEK organizations |\n")
+    finding = Finding(
+        impact="breaking", urls=list(by_url),
+        summary="The CMEK page now says structured outputs are unavailable for Claude "
+                "Fable and Claude Mythos models generally, where it previously named "
+                "only Claude Fable 5 and Claude Mythos models.",
+        detail='The table entry changed from "not available for Claude Fable 5 or '
+               'Claude Mythos models in CMEK organizations" to "not available for '
+               'Claude Fable or Claude Mythos models in CMEK organizations".')
+    out = A.audit_finding(finding, by_url, blob_dir=corpus.blob_dir)
+    assert out.misquoted_before == []
+    assert out.misquoted_after == []
+
+
+def test_a_paraphrase_presented_as_a_quote_flags(corpus):
+    """Graded finding 202: the old page says "The connector only supports ingestion of
+    BASIC reports." — the finding quotes it as "BASIC reports only". Right substance,
+    fabricated quotation; the check flags the quotation."""
+    from changefeed.digest import audit as A
+    from changefeed.digest.findings import Finding
+
+    by_url = _two_sided(
+        corpus,
+        "# TikTok Ads\n\n- The connector only supports ingestion of BASIC reports.\n",
+        "# TikTok Ads\n\n- Report data is only supported for reports with fewer than "
+        "20,000 ads.\n")
+    finding = Finding(
+        impact="behavioural", urls=list(by_url),
+        summary='The TikTok Ads connector limit changed from "BASIC reports only" to '
+                '"report data is only supported for reports with fewer than 20,000 ads".')
+    out = A.audit_finding(finding, by_url, blob_dir=corpus.blob_dir)
+    assert [q for q, _ in out.misquoted_before] == ["BASIC reports only"]
+    assert out.misquoted_after == []
+
+
+def test_emphasis_tokens_and_elided_quotes_are_not_claims():
+    """From real findings 226 and 179: a single quoted token is emphasis, and an elided
+    template ("For how X…") is unverifiable by construction. Neither is checked."""
+    from changefeed.digest.audit import quoted_claims
+    from changefeed.digest.findings import Finding
+
+    finding = Finding(
+        impact="editorial", urls=[],
+        summary='The endpoints now document an optional "anthropic-workspace-id" header '
+                'that was previously undocumented.',
+        detail='A phrasing sweep rewrites cross-reference sentences from "For how X…" '
+               'to "To learn how X…".')
+    past, present = quoted_claims(finding)
+    assert past == []
+    assert present == []
+
+
+def test_quantifier_falsity_is_a_recorded_miss(corpus):
+    """Graded finding 158's falsity lives in the word "only" — every named term of its
+    past-claim IS in the old text (which also excluded Opus 5 and Sonnet 5). Term
+    presence cannot see that, and A-terms measured ~90% false on other grounds, so this
+    stays a documented boundary of the deterministic check, not a silent one."""
+    from changefeed.digest import audit as A
+    from changefeed.digest.findings import Finding
+
+    by_url = _two_sided(
+        corpus,
+        "# Service tiers\n\nPriority Tier is supported on all available Claude models "
+        "except Claude Mythos 5, Claude Mythos Preview, Claude Opus 5, and Claude "
+        "Sonnet 5.\n",
+        "# Service tiers\n\nPriority Tier is supported on all available Claude models "
+        "except Claude Fable 5.1, Claude Mythos 5.1, Claude Mythos 5, Claude Mythos "
+        "Preview, Claude Opus 5, and Claude Sonnet 5.\n")
+    finding = Finding(
+        impact="additive", urls=list(by_url),
+        summary="Priority Tier now lists Claude Fable 5.1 and Claude Mythos 5.1 among "
+                "the models it does not support, alongside Claude Mythos 5 and Claude "
+                "Mythos Preview.",
+        detail="The page previously excluded only Claude Mythos 5 and Claude Mythos "
+               "Preview from Priority Tier; the new sentence adds the two 5.1 models.")
+    out = A.audit_finding(finding, by_url, blob_dir=corpus.blob_dir)
+    assert out.misquoted_before == []   # no quote to check — the boundary, on purpose
+
+
+def test_a_preposition_to_is_not_a_rename_to(corpus):
+    """Real finding 199, a true finding: `pages that linked to "Enrich data using AI
+    Functions" now use the new title`. "linked to" is a preposition — the quote names
+    the OLD title correctly and must not be checked as the new text. Caught by reading
+    the real audit output, not by a test."""
+    from changefeed.digest import audit as A
+    from changefeed.digest.findings import Finding
+
+    by_url = _two_sided(
+        corpus,
+        "# AI Functions\n\nSee [Enrich data using AI Functions](https://x.test/ai).\n",
+        "# AI Functions\n\nSee [Transform unstructured data using AI Functions]"
+        "(https://x.test/ai).\n")
+    finding = Finding(
+        impact="additive", urls=list(by_url),
+        summary='A new `ai_enrich` SQL function (Beta) generates new columns for each '
+                'row, and the AI Functions guide is retitled "Transform unstructured '
+                'data using AI Functions".',
+        detail='The many pages that linked to "Enrich data using AI Functions" now use '
+               'the new title.')
+    out = A.audit_finding(finding, by_url, blob_dir=corpus.blob_dir)
+    assert out.misquoted_after == []
+    assert out.misquoted_before == []
