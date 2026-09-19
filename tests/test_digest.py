@@ -707,3 +707,91 @@ def test_newness_check_reads_the_v2_phrasing():
 
     assert claims_newness(finding)
     assert {"GLM-5.3", "grok-4-6", "Gemini 3.8 Flash"} <= identifiers(finding)
+
+
+# --- issue/accuracy/02: restriction language and the boosted excerpt ------
+
+# The exact sentence the digest missed under both prompt versions — the standing rule:
+# a check's test is built from the real text that motivated it. `cannot` begins at
+# character 140 of the real changed line, which is also EXCERPT_LINE: head truncation
+# cut the excerpt at the word itself.
+_FABLE_LINE = (
+    "> For Claude Fable 5, prompts and responses are retained for 30 days for trust "
+    "and safety purposes. Customers who opt out of data retention cannot use Claude "
+    "Fable 5. This data is processed by automated safety systems and may in certain "
+    "instances be reviewed."
+)
+
+
+def test_the_fable_retention_sentence_fires_restriction():
+    assert classify.RESTRICTION.search(_FABLE_LINE)
+    # And deliberately NOT the ranking lexicon: extending STATUS was measured on both
+    # stored runs and rejected (rank 538 -> 499; Admin-API boilerplate into the top-100).
+    # If this assertion ever fails, someone widened STATUS without re-measuring.
+    assert not classify.STATUS.search(_FABLE_LINE)
+
+
+def test_admitted_restriction_words_fire_on_their_motivating_lines():
+    """One real changed line per admitted word, from the samples read on 2026-09-18."""
+    for line in (
+        "> This example requires the Databricks AI environment version 5 or above.",
+        "Archived rules are rejected with 400. OAuth callers may only manage rules",
+        ("(**Behavior change**) Metric views now reject window measures that reference "
+         "other window measures."),
+        ("- You cannot share a metric view that references tables with row filters or "
+         "column masks."),
+        ("In organizations that use customer-managed encryption keys, local session "
+         "transcripts are unavailable."),
+    ):
+        assert classify.RESTRICTION.search(line), line
+
+
+def test_must_at_end_of_clause_is_restriction_but_not_status():
+    """The iff from the issue: end-of-clause `must` matches exactly where `must` was
+    admitted — RESTRICTION (`must\\b`) — and not in STATUS, whose v1 `must ` (trailing
+    space) is frozen by the measured rejection."""
+    for line in ("Before November 30, 2026, you must:", "The `upsertkey` columns must:"):
+        assert classify.RESTRICTION.search(line), line
+        assert not classify.STATUS.search(line), line
+    # STATUS v1 behaviour unchanged where it did match:
+    assert classify.STATUS.search("you must provide a name for the resource")
+
+
+def test_boosted_excerpt_windows_the_restriction_clause():
+    """Off (the default), the retention line is selected but head truncation hides the
+    clause — the measured failure. On, the excerpt windows to the sentence holding the
+    match, so 'cannot use Claude Fable 5' is on screen."""
+    import tempfile
+
+    from changefeed import blobs
+
+    filler = "Filler table row that is long and unremarkable in every way. " * 3
+    before = "# Models\n\n" + filler
+    after = "# Models\n\n" + filler + "\n" + _FABLE_LINE
+
+    change = diff.PageChange(
+        "https://x.test/en/supported-models", diff.MODIFIED, classify.CONTENT,
+        classify.SUBSTANTIVE, {"content_hash": "1" * 64}, {"content_hash": "2" * 64})
+    with tempfile.TemporaryDirectory() as d:
+        blobs.write("1" * 64, before, d)
+        blobs.write("2" * 64, after, d)
+        plain = compress(change, blob_dir=d)
+        boosted = compress(change, blob_dir=d, boost_restrictions=True)
+
+    assert "For Claude Fable 5" in plain.excerpt        # the line IS selected…
+    assert "cannot use Claude Fable 5" not in plain.excerpt   # …but the clause is cut
+    assert "cannot use Claude Fable 5" in boosted.excerpt
+    assert len(boosted.excerpt) <= 280
+
+
+def test_the_window_never_rewinds_the_match_off_screen():
+    """A sentence boundary can sit far before the match; rewinding there re-hides the
+    clause the window exists to show. The window must always contain the match."""
+    from changefeed.digest.compress import EXCERPT_LINE, _clip
+
+    line = ("The section opens here. " + "An unremarkable clause drones on and on, "
+            "never ending a sentence, going through commas, " * 4
+            + "until finally the feature cannot be used with serverless compute.")
+    clipped = _clip(line, boost=True)
+    assert "cannot" in clipped
+    assert len(clipped) <= EXCERPT_LINE + 1  # the ellipsis

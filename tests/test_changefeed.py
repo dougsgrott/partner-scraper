@@ -374,6 +374,9 @@ def test_json_report_keeps_every_change_including_ranked_down_ones(corpus):
 
     assert payload["counts"]["removed"] == 1
     assert len(payload["changes"]) == len(corpus.diff_last_two().changes)
+    # The lexicon that ranked these changes — without it, reports produced by different
+    # classifiers compare as if they were the same instrument (issue/accuracy/02).
+    assert payload["classify_version"] == classify.CLASSIFY_VERSION
 
 
 # --- history --------------------------------------------------------------

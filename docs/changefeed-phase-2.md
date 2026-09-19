@@ -474,6 +474,18 @@ sentence added on the + side that contains restriction language (`cannot`, `not 
 text. That pass would have found the Fable 5 sentence. Measure its hit rate on #5 → #6 before
 deciding whether it feeds the session or the audit.
 
+*Update (2026-09-18):* those trigger words were measured against the severity lexicon in
+[issue/accuracy/02](../issue/accuracy/02-restriction-lexicon.md), and the result reframes
+this miss. Admitting them to STATUS moves the retention page only from rank 538 to 499 —
+density arithmetic cannot rescue a five-line restriction inside a 62-line rewrite — while
+pulling Admin-API boilerplate into the top-100, so STATUS stays as it is. The sentence was
+actually lost to **excerpt truncation**: `cannot` begins at character 140 of the changed
+line and `EXCERPT_LINE` is 140. A `RESTRICTION` lexicon now exists (`classify.py`), a
+restriction-boosted, clause-windowed excerpt sits behind `digest.py run
+--boost-restrictions` pending its graded A/B (findings record `prompt_version` `2+r`), and
+run reports carry a `classify_version` stamp. The detector sketched above is still open as
+issue/accuracy/05, and remains the only channel that can surface the Fable 5 line itself.
+
 ### The verdict ledger (2026-09-18): grades stop evaporating
 
 Every accuracy statement above came from a manual audit whose verdicts lived only in prose —

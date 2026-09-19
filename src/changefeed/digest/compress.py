@@ -135,8 +135,41 @@ class CompressedRun:
         return int(self.chars / CHARS_PER_TOKEN)
 
 
-def _excerpt(change: PageChange, blob_dir=None) -> str:
-    """The most informative changed lines, status language first."""
+def _clip(line: str, *, boost: bool) -> str:
+    """One excerpt line, head-truncated — unless it carries restriction language.
+
+    Head truncation buried the one sentence that mattered most: on the Fable 5 retention
+    lines, `cannot` sits at character 140 and 142 of the line, and `EXCERPT_LINE` is 140 —
+    the cut landed on the word itself, so the prompt showed a harmless retention preamble
+    (issue/accuracy/02). With the boost on, a line matching RESTRICTION is windowed from
+    the start of the sentence containing the match instead of from the head.
+    """
+    line = line.strip()
+    if boost:
+        m = classify.RESTRICTION.search(line)
+        if m and m.start() >= EXCERPT_LINE - 40:
+            # Rewind to the start of the match's sentence, but never so far that the
+            # match falls off the end of the window again — the first draft allowed a
+            # 200-character rewind into a 140-character window, which re-hid the clause
+            # it existed to show.
+            cut = line.rfind(". ", 0, m.start())
+            start = cut + 2 if cut != -1 and m.start() - (cut + 2) <= EXCERPT_LINE - 40 \
+                else max(0, m.start() - 60)
+            return "…" + line[start:start + EXCERPT_LINE - 1]
+    return line[:EXCERPT_LINE]
+
+
+def _excerpt(change: PageChange, blob_dir=None, *, boost_restrictions: bool = False) -> str:
+    """The most informative changed lines, status language first.
+
+    `boost_restrictions` is the issue/accuracy/02 experiment, off by default because it
+    changes what the model reads (docs/accuracy-plan.md: one graded A/B on a stored pair
+    before any such change becomes the default). On, restriction language outranks other
+    status language and matched clauses survive truncation — measured on the graded
+    pages: it pairs the old and new versions of the create-policy sentence that finding
+    253 misread as new, and it puts the retention clause on screen where head truncation
+    had cut it at the word `cannot`.
+    """
     before = blobs.read_or_none((change.before or {}).get("content_hash"), blob_dir)
     after = blobs.read_or_none((change.after or {}).get("content_hash"), blob_dir)
     if before is None or after is None:
@@ -148,20 +181,26 @@ def _excerpt(change: PageChange, blob_dir=None) -> str:
     lines = [("-", line) for line in removed] + [("+", line) for line in added]
     # Status first, then longest: a long line carries more of what changed than a short
     # one, and the alternative — document order — is arbitrary with respect to importance.
-    lines.sort(key=lambda pair: (0 if classify.STATUS.search(pair[1]) else 1, -len(pair[1])))
-    joined = " | ".join(f"{sign}{line.strip()[:EXCERPT_LINE]}"
+    if boost_restrictions:
+        lines.sort(key=lambda pair: (0 if classify.RESTRICTION.search(pair[1])
+                                     else (1 if classify.STATUS.search(pair[1]) else 2),
+                                     -len(pair[1])))
+    else:
+        lines.sort(key=lambda pair: (0 if classify.STATUS.search(pair[1]) else 1, -len(pair[1])))
+    joined = " | ".join(f"{sign}{_clip(line, boost=boost_restrictions)}"
                         for sign, line in lines[:EXCERPT_LINES])
     return joined[:EXCERPT_BUDGET]
 
 
-def compress(change: PageChange, *, blob_dir=None) -> CompressedChange:
+def compress(change: PageChange, *, blob_dir=None,
+             boost_restrictions: bool = False) -> CompressedChange:
     """One change as a single record."""
     excerpt = ""
     if change.kind not in TERSE_KINDS:
         if change.kind in (ADDED, REMOVED):
             excerpt = (change.current.get("description") or "")[:EXCERPT_BUDGET]
         else:
-            excerpt = _excerpt(change, blob_dir)
+            excerpt = _excerpt(change, blob_dir, boost_restrictions=boost_restrictions)
 
     return CompressedChange(
         url=change.url,
@@ -176,7 +215,8 @@ def compress(change: PageChange, *, blob_dir=None) -> CompressedChange:
     )
 
 
-def compress_run(result: DiffResult, *, blob_dir=None) -> CompressedRun:
+def compress_run(result: DiffResult, *, blob_dir=None,
+                 boost_restrictions: bool = False) -> CompressedRun:
     """Compress every change in a diff, most urgent first.
 
     Ordered by severity for the same reason the report is: a model reading a long flat
@@ -189,7 +229,7 @@ def compress_run(result: DiffResult, *, blob_dir=None) -> CompressedRun:
     eligible = [c for c in result.changes if c.cause != PIPELINE]
     excluded = len(result.changes) - len(eligible)
 
-    records = [compress(c, blob_dir=blob_dir)
+    records = [compress(c, blob_dir=blob_dir, boost_restrictions=boost_restrictions)
                for c in sorted(eligible, key=lambda c: (-c.severity, c.company, c.url))]
     return CompressedRun(
         before=result.before.name,
