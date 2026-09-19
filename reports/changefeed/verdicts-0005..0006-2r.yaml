@@ -1,0 +1,76 @@
+# Verdict worksheet — findings from #5 -> #6, prompt v2+r (EXPERIMENT ARM R:
+# restriction-boosted, clause-windowed excerpts — issue/accuracy/02). Seeded draw,
+# graded full-page against the stored blobs on 2026-09-19, the day of the run.
+pair: {before: 5, after: 6}
+prompt_version: "2+r"
+selection: draw
+seed: 1
+requested: 10
+graded_at: "2026-09-19"
+source: graded against stored blobs, session of 2026-09-19
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 36, drawn: 5, weight: 7.2}
+  behavioural: {population: 26, drawn: 3, weight: 8.6667}
+  breaking: {population: 5, drawn: 1, weight: 5.0}
+  editorial: {population: 12, drawn: 1, weight: 12.0}
+verdicts:
+  - id: 333
+    impact: breaking
+    summary: "The change data feed requirements are raised from Databricks Runtime 18 LTS or above to Databricks Runtime 19 or above (with Unity Catalog tables and row tracki"
+    verdict: "true"
+    method: "full-page"
+    notes: "Same story as v2 finding 189, graded true there: the -/+ requirement lines verified verbatim."
+  - id: 334
+    impact: behavioural
+    summary: "Pipeline unit testing no longer requires the PREVIEW channel; it now requires Databricks Runtime 18.1 or above, since earlier runtimes do not include the unit t"
+    verdict: "true"
+    method: "full-page"
+    notes: "Same story as v1 finding 128, graded true full-page."
+  - id: 375
+    impact: behavioural
+    summary: "A Databricks App that writes MLflow traces to Unity Catalog must add the trace tables as app resources; an MLflow experiment resource only grants workspace-leve"
+    verdict: "true"
+    method: "full-page"
+    notes: "The + admonition states the app-resource requirement and the workspace-only scope of an experiment resource verbatim."
+  - id: 371
+    impact: behavioural
+    summary: "Databricks announces that when incremental formula field ingestion goes generally available, full snapshots will no longer be the default."
+    verdict: "true"
+    method: "full-page"
+    notes: "whats-coming page; the incremental-formula / full-snapshot terms are new in the after text and the framing matches the announcement genre."
+  - id: 351
+    impact: additive
+    summary: "Databricks adds `databricks-claude-fable-5-1`, `databricks-gemini-3-8-flash` and `databricks-gpt-6-astra` as hosted models, with limits, priority-mode, region a"
+    verdict: "true"
+    method: "full-page"
+    notes: "All three named models verified genuinely new (absent from #5). Notably does NOT repeat the Grok/GLM false newness of v2 finding 197."
+  - id: 305
+    impact: additive
+    summary: "Turn-scoped system messages are in beta behind the `mid-conversation-system-clear-at-2026-08-21` header: `clear_at: \"next_user_message\"` renders a mid-conversat"
+    verdict: "true"
+    method: "full-page"
+    notes: "clear_at, the beta header and the turn-scoped section are all new; the page itself states the cache/thinking preservation mechanics the detail summarises."
+  - id: 347
+    impact: additive
+    summary: "Databricks-provided built-in MCP services ship with platform-managed tools and a built-in service policy and need no server registration or OAuth app; the Datab"
+    verdict: "true"
+    method: "full-page"
+    notes: "The built-in-mcp-services page is added; 'service policy' and the dbsql recommendation verified on the after text. Cousin of v2 finding 196 (true)."
+  - id: 304
+    impact: additive
+    summary: "Per-message effort is in beta on Claude Fable 5.1, Mythos 5.1, and Opus 5 behind the `mid-conversation-output-config-2026-07-01` header, while the top-level eff"
+    verdict: "true"
+    method: "full-page"
+    notes: "The beta header and per-message effort are stated on the after page; the model list is the page's own supported-models statement."
+  - id: 361
+    impact: additive
+    summary: "Service principal OAuth secrets can be scoped to specific API scopes; by default a secret still gets `all-apis`."
+    verdict: "true"
+    method: "full-page"
+    notes: "The + lines state both halves verbatim, including 'every existing secret keeps all-apis access and behaves as before'."
+  - id: 326
+    impact: editorial
+    summary: "A phrasing sweep rewrites cross-reference sentences ('For how X…' becomes 'To learn how X…') across tool, thinking and ZDR notes with no change in substance."
+    verdict: "true"
+    method: "full-page"
+    notes: "The -/+ pairs show exactly the phrasing sweep; no substance change, correctly editorial."

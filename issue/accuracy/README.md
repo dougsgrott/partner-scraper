@@ -33,10 +33,10 @@ acceptance criteria of most of the rest.
 | # | Issue | Status | Kind |
 |---|---|---|---|
 | [01](01-verdict-ledger.md) | Persist audit verdicts; make grading cumulative | implemented 2026-09-18 | code + process |
-| [02](02-restriction-lexicon.md) | The status lexicon cannot see "cannot" | measured + implemented 2026-09-18; A/B pending | code + measurement |
+| [02](02-restriction-lexicon.md) | The status lexicon cannot see "cannot" | done 2026-09-19 — A/B graded 100% vs 70%; boost recommended for default | code + measurement |
 | [03](03-newness-coverage.md) | Newness check: invisible identifiers, cited-page scope | measured 2026-09-18 — broadenings rejected; region FP + silent skip fixed | code + measurement |
-| [04](04-invented-contrast.md) | Verify claims about the past | implemented 2026-09-19 — quote check ships (2/2 precision); prompt rule drafted, A/B pending | code + measurement |
-| [05](05-missed-restrictions.md) | An absence detector for restrictions | open | code + measurement |
+| [04](04-invented-contrast.md) | Verify claims about the past | done 2026-09-19 — quote check ships; rule A/B graded 90%, not adopted | code + measurement |
+| [05](05-missed-restrictions.md) | An absence detector for restrictions | done 2026-09-19 — scan ships; injection A/B graded 90% but anchoring confirmed, not adopted | code + measurement |
 | [06](06-prompt-size.md) | The 198k-token prompt: collapse, count, re-probe | open | code + measurement |
 | [07](07-reappearing-lines.md) | Mark reappearing lines in diffs and excerpts | open | code |
 | [08](08-tiny-change-severity.md) | Severity density and the one-line change | open | decision, gated on 01 |

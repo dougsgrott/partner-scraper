@@ -1,7 +1,8 @@
 # 02 — The status lexicon cannot see "cannot"
 
-**Status:** measured and implemented (2026-09-18), uncommitted; the A/B gate remains —
-see *Done* below · **Kind:** code + measurement · **Effort:** ~2–3 h
+**Status:** done (2026-09-19), uncommitted — implemented, and the A/B run and graded:
+100% vs baseline 70%; boost recommended for default (Doug's call). See *Done* and the
+A/B criterion below · **Kind:** code + measurement · **Effort:** ~2–3 h
 **Depends on:** nothing to build; [01](01-verdict-ledger.md) to measure ranking effects
 **Blocks:** [05](05-missed-restrictions.md) (consumes the restriction lexicon)
 
@@ -76,11 +77,17 @@ before and after is the single most interesting cell in that table.
       built from that exact sentence, per the standing rule
 - [x] Re-ranked top-100 diff read and summarised; regressions named or ruled out
 - [x] A lexicon/classifier version stamp appears in run reports
-- [ ] A/B on model input order (if any word is admitted): one re-run of a stored pair,
-      graded via [01](01-verdict-ledger.md), before the new lexicon becomes default —
-      **pending, costs ~$3**: `uv run python scripts/digest.py run 5 6
-      --boost-restrictions`, then a `grade` cycle; findings carry `prompt_version` `2+r`
-      so the ledger keeps the arms apart
+- [x] A/B on model input order: **run and graded 2026-09-19** (`prompt_version` `2+r`,
+      $3.79, 79 findings). Seeded-draw full-page grade **10/10 true (100%)** against the
+      baseline v2 draw's 70%; **zero mechanical audit flags across all 79 findings**;
+      all five needle pages cited. The two graded error clusters both resolved: the
+      new-models finding lists only the three genuinely new models (no Grok/GLM false
+      newness), and the CMEK story is labelled `behavioural`, not `breaking`. The 5.1
+      retention restriction became its own finding — the boosted excerpt showed exactly
+      that clause — while the Fable 5 twin (third restriction line on a two-slot
+      excerpt) is still unreported, as the excerpt measurement predicted. n=10 on one
+      pair is evidence, not proof; **recommended for default**, which is Doug's call
+      (flip the flag default and fold `+r` into the next PROMPT_VERSION)
 
 ## Tests
 

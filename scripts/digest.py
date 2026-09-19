@@ -93,7 +93,9 @@ def cmd_run(args) -> int:
         outcome = asyncio.run(run_digest(
             result, db=db, blob_dir=args.blob_dir, data_root=args.data_root,
             max_budget_usd=None if args.no_budget else args.max_budget,
-            boost_restrictions=args.boost_restrictions))
+            boost_restrictions=args.boost_restrictions,
+            quote_evidence=args.quote_evidence,
+            inject_restrictions=args.inject_restrictions))
         print(outcome.render())
         return _write(db, before, after, len(result.changes), args)
 
@@ -166,6 +168,35 @@ def cmd_audit(args) -> int:
               f"the stored text does not support — check those first.")
     for i, a in enumerate(audits, 1):
         print(audit.render(a, i))
+    # The audit can only check findings that exist. The absence scan is the other half.
+    print(f"\nFor restrictions no finding reports at all, run: "
+          f"uv run python scripts/digest.py absence {before.id} {after.id}")
+    return 0
+
+
+def cmd_absence(args) -> int:
+    """Restrictions the digest may have missed. See `changefeed.digest.absence`.
+
+    No model and no cost. Scans the pair's added lines for restriction language naming
+    things that were already on the page, and lists the candidates — pages no finding
+    cites first. This is the only check that can surface a finding that was never
+    written; everything in `audit` starts from one that was.
+    """
+    from changefeed.digest import absence
+
+    with ChangeDB(args.changes_db) if args.changes_db else ChangeDB() as db:
+        pair = _pair(db, args)
+        if pair is None:
+            return 1
+        before, after = pair
+        result = diff.compare(before, after, db=db, blob_dir=args.blob_dir)
+        stored = findings.for_pair(db, before.id, after.id)
+
+    candidates = absence.scan(result, blob_dir=args.blob_dir)
+    if stored:
+        absence.mark_cited(candidates, stored)
+    print(absence.render(candidates, before=before.name, after=after.name,
+                         limit=args.limit))
     return 0
 
 
@@ -278,6 +309,12 @@ def main() -> None:
     p.add_argument("--no-budget", action="store_true",
                    help="run without a spend cap — say so explicitly")
     p.add_argument("--boost-restrictions", action="store_true", help=boost_help)
+    p.add_argument("--quote-evidence", action="store_true",
+                   help="A/B arm (issue 04): prompt rule to quote the exact old text; "
+                        "findings record prompt_version '+q'")
+    p.add_argument("--inject-restrictions", action="store_true",
+                   help="A/B arm (issue 05): append the absence scan's candidates to "
+                        "the prompt; findings record prompt_version '+inj'")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("render", help="re-render stored findings — no model, no cost")
@@ -298,6 +335,14 @@ def main() -> None:
     p.add_argument("--changes-db")
     p.add_argument("--blob-dir")
     p.set_defaults(func=cmd_audit)
+
+    p = sub.add_parser("absence", help="restrictions the digest may have missed entirely")
+    p.add_argument("before", nargs="?")
+    p.add_argument("after", nargs="?")
+    p.add_argument("--limit", type=int, default=200, help="candidates to show")
+    p.add_argument("--changes-db")
+    p.add_argument("--blob-dir")
+    p.set_defaults(func=cmd_absence)
 
     p = sub.add_parser("grade", help="emit a verdict worksheet, or --import a filled one")
     p.add_argument("before", nargs="?")

@@ -93,7 +93,7 @@ Rules that matter:
 9. **Say bulk regeneration once.** Large parts of a run can be an API reference being
    regenerated — schema shapes, casing, field-list collapsing. Record that as a single
    `editorial` finding rather than ignoring it or itemising it.
-
+{extra_rules}
 Aim for the number of findings the run actually contains — perhaps 15 to 40 for a busy
 week. Do not pad to a target, and do not stop early because the list is long.
 
@@ -102,6 +102,17 @@ record everything in as few `record_findings` calls as you can. When you are don
 with a one-line count and stop.
 
 {run}"""
+
+# Issue/accuracy/04 option B, an A/B arm until graded: converts the model's most common
+# error (asserting what the old text said, unchecked) into a checkable citation. The
+# audit verifies quoted past-claims verbatim (`audit.quoted_claims`), so every quote
+# this rule induces lands in a verifier whose measured precision is 2/2.
+QUOTE_RULE = """
+10. **When you assert what the old text said or lacked** ("previously …", "was …",
+    "renamed from …"), quote the exact old line or phrase in double quotes, or write
+    "absent before". Quoted text is verified verbatim against the stored before text;
+    a paraphrase inside quotation marks counts as a fabrication.
+"""
 
 
 @dataclass
@@ -157,18 +168,29 @@ async def run_digest(
     max_budget_usd: float | None = None,
     replace: bool = True,
     boost_restrictions: bool = False,
+    quote_evidence: bool = False,
+    inject_restrictions: bool = False,
 ) -> DigestResult:
     """Run one digest session over a whole diff.
 
-    `boost_restrictions` changes what the model reads (see `compress._excerpt`), so its
-    findings record `prompt_version` with a `+r` suffix — the ledger of
-    issue/accuracy/01 must never pool the two arms of that A/B as one prompt.
+    The three flags are A/B arms (issues 02, 04 and 05), off by default until each is
+    graded. Every one changes what the model reads, so findings record
+    `prompt_version` with a matching suffix (`+r`, `+q`, `+inj`) — the ledger of
+    issue/accuracy/01 must never pool arms as one prompt.
     """
     from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
     run = compress_run(result, blob_dir=blob_dir, boost_restrictions=boost_restrictions)
     logger.info("digest input: %d changes, ~%dk tokens",
                 len(run.records), run.approx_tokens // 1000)
+
+    appendix = ""
+    if inject_restrictions:
+        from . import absence
+
+        candidates = absence.scan(result, blob_dir=blob_dir)
+        appendix = absence.injection(candidates)
+        logger.info("injecting %d restriction candidates", len(candidates))
 
     if replace:
         # A re-run replaces rather than accumulates: two sessions over one pair should not
@@ -177,7 +199,9 @@ async def run_digest(
         if retired:
             logger.info("superseded %d previous finding(s) for this pair", retired)
 
-    version = PROMPT_VERSION + ("+r" if boost_restrictions else "")
+    version = (PROMPT_VERSION + ("+r" if boost_restrictions else "")
+               + ("+q" if quote_evidence else "")
+               + ("+inj" if inject_restrictions else ""))
     ctx = DigestContext(result=result, db=db, blob_dir=blob_dir, data_root=data_root,
                         model=model, prompt_version=version)
     options = ClaudeAgentOptions(
@@ -194,8 +218,10 @@ async def run_digest(
 
     out = DigestResult(before=result.before.id, after=result.after.id,
                        changes=len(run.records))
+    prompt = PROMPT.format(run=run.render(),
+                           extra_rules=QUOTE_RULE if quote_evidence else "") + appendix
     try:
-        async for message in query(prompt=PROMPT.format(run=run.render()), options=options):
+        async for message in query(prompt=prompt, options=options):
             out.turns += 1
             if isinstance(message, ResultMessage):
                 out.cost_usd = message.total_cost_usd

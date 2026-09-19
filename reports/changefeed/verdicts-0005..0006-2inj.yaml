@@ -1,0 +1,76 @@
+# Verdict worksheet — findings from #5 -> #6, prompt v2+inj (EXPERIMENT ARM I:
+# absence-scan candidates injected into the prompt — issue/accuracy/05 option B).
+# Seeded draw, graded full-page against the stored blobs on 2026-09-19.
+pair: {before: 5, after: 6}
+prompt_version: "2+inj"
+selection: draw
+seed: 1
+requested: 10
+graded_at: "2026-09-19"
+source: graded against stored blobs, session of 2026-09-19
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 26, drawn: 4, weight: 6.5}
+  behavioural: {population: 20, drawn: 3, weight: 6.6667}
+  breaking: {population: 7, drawn: 1, weight: 7.0}
+  editorial: {population: 11, drawn: 2, weight: 5.5}
+verdicts:
+  - id: 383
+    impact: breaking
+    summary: "Federation issuer, federation rule and service-account admin endpoints are now documented as requiring an OAuth access token carrying the `org:admin` scope, rep"
+    verdict: "true"
+    method: "full-page"
+    notes: "The org:admin banners verified verbatim on the + side; the past-claim about the looser previous text matches the - lines."
+  - id: 427
+    impact: behavioural
+    summary: "Viewing serverless job performance metrics no longer requires workspace access to Query performance insights; only the \"Improved Lakeflow Performance Observabil"
+    verdict: "true"
+    method: "full-page"
+    notes: "The removed prerequisite verified verbatim on the - side; a relaxation captured with its old warning quoted accurately."
+  - id: 380
+    impact: behavioural
+    summary: "A new \"preserved thinking\" page documents that on Claude Fable 5.1 and Mythos 5.1 a replayed thinking block is only accepted by the model that produced it (or a"
+    verdict: "true"
+    method: "full-page"
+    notes: "The preserved-thinking page is added; the compaction claim matches the previously verified evidence; core rules stated on the new page."
+  - id: 416
+    impact: behavioural
+    summary: "SQL AI-function examples now name models as `system.ai.llama-4-maverick` instead of the endpoint name `databricks-llama-4-maverick`."
+    verdict: "true"
+    method: "full-page"
+    notes: "The -/+ substitution verified verbatim, and the detail honestly states what the pages do not say about old endpoint names."
+  - id: 417
+    impact: additive
+    summary: "Foundation Model APIs add `databricks-claude-fable-5-1`, `databricks-gemini-3-8-flash`, `databricks-gpt-6-astra` and GLM-5.3, with the per-region availability t"
+    verdict: "partly"
+    method: "full-page"
+    notes: "GLM-5.3 was already in #5 (the audit flags it — the false newness the injection candidate list re-anchored). Worse: the detail reports the Fable 5 retention restriction but calls it 'the same condition already documented for Claude Fable 5' — FALSE, that sentence is new this window and IS the known miss: surfaced by the injection, then neutralised by an invented past."
+  - id: 426
+    impact: additive
+    summary: "Git Folder Serverless (Beta) lets notebooks and files in a Git folder share one serverless compute resource and an environment managed by `pyproject.toml`."
+    verdict: "true"
+    method: "full-page"
+    notes: "Same story as v2 finding 209, graded true: added page plus index links."
+  - id: 377
+    impact: additive
+    summary: "Claude Fable 5.1 and Mythos 5.1 price prompt-cache hits at 0.025x base input ($0.25/MTok) instead of the 0.1x multiplier every other model uses."
+    verdict: "true"
+    method: "full-page"
+    notes: "0.025x absent before, present after; the old 0.1x cache-read row on the - side; prices consistent."
+  - id: 425
+    impact: additive
+    summary: "Zerobus Ingest can now write into tables backed by default storage (Public Preview); the flat \"Writing to default storage is not supported\" restriction is gone."
+    verdict: "true"
+    method: "full-page"
+    notes: "The dropped restriction sentence and the new Public Preview rows verified verbatim on both sides."
+  - id: 402
+    impact: editorial
+    summary: "Cookbook install cells switch from the shell escape `!pip install` to the notebook magic `%pip install`."
+    verdict: "true"
+    method: "full-page"
+    notes: "The !pip -> %pip pairs verified on the cookbook diffs."
+  - id: 438
+    impact: editorial
+    summary: "Beta and Preview callouts were reformatted across many pages, replacing a bare \"**Beta:**\" marker with a full sentence linking the release-types page."
+    verdict: "true"
+    method: "full-page"
+    notes: "The -/+ callout pairs verified; the detail warns against misreading a removed Beta marker as a stage change."
