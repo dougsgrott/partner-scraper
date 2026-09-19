@@ -120,13 +120,53 @@ WEIGHTS = (SUBSTANTIVE, LOW, NOISE)
 # clause. Above it, a large prose rewrite is worth seeing even with nothing structural in it.
 LOW_DELTA_CHARS = 900
 
+# Bumped when STATUS, RESTRICTION, or how their consumers order the model's input changes
+# behaviour. Stamped into run reports for the PROMPT_VERSION reason: a changed lexicon
+# changes severity, excerpts, and the digest's reading order, and without a stamp two runs
+# from different lexicons are silently incomparable.
+CLASSIFY_VERSION = 1
+
 # Status and policy language. Empirically the highest-value signal in the corpus: it is
 # what distinguishes "this function left Beta" and "this property is no longer supported"
 # from a paragraph being reworded, and neither is visible to a structural comparison.
+#
+# Deliberately NOT extended with the restriction words below, although it looks like an
+# oversight (`required` but not `requires`, `must ` but not `must.`). Extending it was
+# measured on both stored runs (issue/accuracy/02, 2026-09-18): the Fable 5 retention
+# page — the miss the extension was meant to rescue — moved rank 538 -> 499 of 986,
+# nowhere near the top, while ten Admin-API reference pages rode "Requires an OAuth
+# access token…" boilerplate into the #5 -> #6 top-100 and pushed real docs pages out.
+# Density arithmetic is the wrong delivery vehicle for restriction language; RESTRICTION
+# below feeds the channels that work. Do not add words here without re-running that
+# measurement and a graded A/B (docs/accuracy-plan.md, standing constraints).
 STATUS = re.compile(
     r"\b(deprecat\w*|no longer|removed|discontinu\w*|end[- ]of[- ]\w+|sunset\w*"
     r"|breaking|beta|preview|generally available|now available|GA\b"
     r"|not (?:supported|available)|unsupported|required|must )",
+    re.IGNORECASE,
+)
+
+# Restriction language: something you cannot do, lose, or now need. The signature of the
+# change class the digest misses ("Customers who opt out of data retention cannot use
+# Claude Fable 5" carried no signal at all — issue/accuracy/02 has the measurements).
+# Split from STATUS because the consumers' error costs differ: this one feeds the
+# restriction-boosted excerpt (`compress._excerpt`) and the absence detector of
+# issue/accuracy/05, both of which want precision, while STATUS feeds ranking density,
+# which the measured words made worse, not better.
+#
+# Word-by-word decisions, from reading seeded samples of marginal hits on both stored
+# runs (counts in the issue file): `cannot`, `requires`, `reject(s|ed)`, `must` at end of
+# clause — admitted, hits overwhelmingly state real constraints. `unavailable` — admitted
+# HERE but kept out of STATUS: its ranking effect measured ~zero and its #6 -> #7 hits
+# were 83% Admin-API null-semantics boilerplate ("null when the account is unavailable"),
+# but as restriction *language* it is exactly what the absence detector must see. The
+# withdrawal words (`no longer`, `not supported/available`, `unsupported`, `deprecat*`,
+# `removed`, `discontinu*`) carry over from STATUS's original calibration — a restriction
+# scan that missed "no longer supported" would be absurd — not from new measurement.
+RESTRICTION = re.compile(
+    r"\b(cannot|not (?:supported|available)|unsupported|unavailable"
+    r"|no longer|require[sd]\b|must\b|reject(?:s|ed)?\b"
+    r"|deprecat\w*|removed|discontinu\w*)",
     re.IGNORECASE,
 )
 

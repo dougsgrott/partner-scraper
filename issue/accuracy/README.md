@@ -33,7 +33,7 @@ acceptance criteria of most of the rest.
 | # | Issue | Status | Kind |
 |---|---|---|---|
 | [01](01-verdict-ledger.md) | Persist audit verdicts; make grading cumulative | implemented 2026-09-18 | code + process |
-| [02](02-restriction-lexicon.md) | The status lexicon cannot see "cannot" | open | code + measurement |
+| [02](02-restriction-lexicon.md) | The status lexicon cannot see "cannot" | measured + implemented 2026-09-18; A/B pending | code + measurement |
 | [03](03-newness-coverage.md) | Newness check: invisible identifiers, cited-page scope | open | code + measurement |
 | [04](04-invented-contrast.md) | Verify claims about the past | open | code + measurement |
 | [05](05-missed-restrictions.md) | An absence detector for restrictions | open | code + measurement |

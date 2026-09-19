@@ -144,7 +144,8 @@ def render(
          f"{result.before.page_count:,} pages"),
         (f"> {result.after.name} · {result.after.taken_at} · "
          f"{result.after.page_count:,} pages"),
-        f"> Rendered {datetime.now(UTC).isoformat(timespec='seconds')}",
+        (f"> Rendered {datetime.now(UTC).isoformat(timespec='seconds')} · "
+         f"classifier v{classify.CLASSIFY_VERSION}"),
         "",
     ]
 
@@ -244,6 +245,10 @@ def render(
 def to_json(result: DiffResult) -> dict:
     """The whole diff as data, with nothing ranked away. Phase 2's input."""
     return {
+        # The severity/excerpt lexicon that produced these ranks — the PROMPT_VERSION
+        # reasoning (issue/accuracy/02): reports from different classifiers must not be
+        # comparable in silence.
+        "classify_version": classify.CLASSIFY_VERSION,
         "before": {"id": result.before.id, "label": result.before.label,
                    "taken_at": result.before.taken_at, "pages": result.before.page_count},
         "after": {"id": result.after.id, "label": result.after.label,

@@ -156,11 +156,17 @@ async def run_digest(
     max_turns: int = MAX_TURNS,
     max_budget_usd: float | None = None,
     replace: bool = True,
+    boost_restrictions: bool = False,
 ) -> DigestResult:
-    """Run one digest session over a whole diff."""
+    """Run one digest session over a whole diff.
+
+    `boost_restrictions` changes what the model reads (see `compress._excerpt`), so its
+    findings record `prompt_version` with a `+r` suffix — the ledger of
+    issue/accuracy/01 must never pool the two arms of that A/B as one prompt.
+    """
     from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
-    run = compress_run(result, blob_dir=blob_dir)
+    run = compress_run(result, blob_dir=blob_dir, boost_restrictions=boost_restrictions)
     logger.info("digest input: %d changes, ~%dk tokens",
                 len(run.records), run.approx_tokens // 1000)
 
@@ -171,8 +177,9 @@ async def run_digest(
         if retired:
             logger.info("superseded %d previous finding(s) for this pair", retired)
 
+    version = PROMPT_VERSION + ("+r" if boost_restrictions else "")
     ctx = DigestContext(result=result, db=db, blob_dir=blob_dir, data_root=data_root,
-                        model=model, prompt_version=PROMPT_VERSION)
+                        model=model, prompt_version=version)
     options = ClaudeAgentOptions(
         model=model,
         mcp_servers={"digest": build_server(ctx)},

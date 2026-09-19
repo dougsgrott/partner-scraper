@@ -57,7 +57,8 @@ def cmd_compress(args) -> int:
         before, after = pair
         result = diff.compare(before, after, db=db, blob_dir=args.blob_dir)
 
-    run = compress_run(result, blob_dir=args.blob_dir)
+    run = compress_run(result, blob_dir=args.blob_dir,
+                       boost_restrictions=args.boost_restrictions)
     text = run.render()
 
     print(f"compressed {before.name} -> {after.name}")
@@ -91,7 +92,8 @@ def cmd_run(args) -> int:
         result = diff.compare(before, after, db=db, blob_dir=args.blob_dir)
         outcome = asyncio.run(run_digest(
             result, db=db, blob_dir=args.blob_dir, data_root=args.data_root,
-            max_budget_usd=None if args.no_budget else args.max_budget))
+            max_budget_usd=None if args.no_budget else args.max_budget,
+            boost_restrictions=args.boost_restrictions))
         print(outcome.render())
         return _write(db, before, after, len(result.changes), args)
 
@@ -249,6 +251,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Build a digest from a run of changes.")
     sub = ap.add_subparsers(dest="command", required=True)
 
+    boost_help = ("restriction-first, clause-windowed excerpts (issue/accuracy/02) — "
+                  "changes what the model reads; findings record prompt_version '+r'. "
+                  "Not the default until a graded A/B says so")
+
     p = sub.add_parser("compress", help="deterministic stage: size what a session would read")
     p.add_argument("before", nargs="?")
     p.add_argument("after", nargs="?")
@@ -256,6 +262,7 @@ def main() -> None:
     p.add_argument("--blob-dir")
     p.add_argument("--out", help="write the full compressed run to a file")
     p.add_argument("--head", type=int, help="print the first N lines")
+    p.add_argument("--boost-restrictions", action="store_true", help=boost_help)
     p.set_defaults(func=cmd_compress)
 
     p = sub.add_parser("run", help="one digest session over a whole run (spends money)")
@@ -269,6 +276,7 @@ def main() -> None:
                    help=f"stop the session past this USD spend (default {DEFAULT_BUDGET_USD})")
     p.add_argument("--no-budget", action="store_true",
                    help="run without a spend cap — say so explicitly")
+    p.add_argument("--boost-restrictions", action="store_true", help=boost_help)
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("render", help="re-render stored findings — no model, no cost")
