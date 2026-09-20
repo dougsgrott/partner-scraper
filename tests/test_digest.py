@@ -1150,3 +1150,289 @@ async def test_the_experiment_arms_change_the_prompt_and_the_version(corpus, mon
         # This tiny corpus has no restriction candidates, so the appendix is empty —
         # the flag must not break the prompt; the version marker still applies.
         assert seen["prompt"].startswith(base[:200])
+
+
+# --- issue/accuracy/06: collapse, merge, and the amended promise ----------
+
+
+def _many_moved(corpus, n=12):
+    """A corpus where n pages move category (site re-date shape) and one page edits."""
+    corpus.populate([record(f"p{i}", category="delta") for i in range(n)]
+                    + [record("edited", markdown="# E\n\nOld text about the feature.\n")])
+    corpus.snap()
+    corpus.populate([record(f"p{i}", category="delta", updated_date="2026-09-11")
+                     for i in range(n)]
+                    + [record("edited", markdown="# E\n\nNew text: the feature is no "
+                                                 "longer supported.\n")])
+    corpus.snap()
+    with ChangeDB(corpus.changes_db) as db:
+        b, a = db.last_two()
+        return diff.compare(b, a, db=db, blob_dir=corpus.blob_dir)
+
+
+def test_collapsed_terse_groups_sum_and_stay_enumerable(corpus):
+    """The amended promise: every change is a line or enumerable through a tool. The
+    header's change count must still equal the real total, and the grouped pages must
+    all be present in the group lines' population."""
+    from changefeed.digest.compress import TERSE_KINDS
+
+    result = _many_moved(corpus)
+    plain = compress_run(result, blob_dir=corpus.blob_dir)
+    collapsed = compress_run(result, blob_dir=corpus.blob_dir, collapse_terse=True)
+
+    n_terse = sum(1 for r in plain.records if r.kind in TERSE_KINDS)
+    assert n_terse >= 12
+    assert sum(len(g.slugs) for g in collapsed.terse_groups) == n_terse
+    assert not any(r.kind in TERSE_KINDS for r in collapsed.records)
+    # The header states the true total, and the rendering says how to enumerate.
+    assert f"# {len(plain.records)} changes:" in collapsed.header()
+    assert "list_changes" in collapsed.render()
+
+
+@pytest.mark.asyncio
+async def test_list_changes_enumerates_exactly_the_collapsed_set(corpus):
+    """The tool half of the promise: what the grouped lines hide, the tool returns —
+    all of it, and nothing else."""
+    from changefeed.digest.tools import DigestContext, make_handlers
+
+    result = _many_moved(corpus)
+    with ChangeDB(corpus.changes_db) as db:
+        ctx = DigestContext(result=result, db=db, blob_dir=str(corpus.blob_dir))
+        handlers = make_handlers(ctx)
+        out = await handlers["list_changes"]({"kind": "metadata"})
+        text = out["content"][0]["text"]
+        expected = {c.url.split("/en/")[-1] for c in result.changes if c.kind == "metadata"}
+        listed = set(text.splitlines()[1:])
+        assert listed == expected
+
+        missing = await handlers["list_changes"]({"kind": "removed"})
+        assert missing.get("is_error")
+
+
+def test_identical_changed_lines_merge_to_one_record_and_stay_citable(corpus):
+    """The #5 -> #6 run carries one beta-header edit stamped across 115 API-reference
+    mirrors. One story, one record — and every mirror path still resolves, because
+    `find()` works on the diff, not the rendering."""
+    from changefeed.digest.tools import DigestContext
+
+    shared_before = "# API\n\nHeader list: `beta-a` or `beta-b` or 38 more.\n"
+    shared_after = "# API\n\nHeader list: `beta-a` or `beta-b`.\n"
+    corpus.populate([record("mirror-one", markdown=shared_before),
+                     record("mirror-two", markdown=shared_before),
+                     record("unrelated", markdown="# U\n\nSomething else entirely.\n")])
+    corpus.snap()
+    corpus.populate([record("mirror-one", markdown=shared_after),
+                     record("mirror-two", markdown=shared_after),
+                     record("unrelated", markdown="# U\n\nSomething else changed here.\n")])
+    corpus.snap()
+    with ChangeDB(corpus.changes_db) as db:
+        b, a = db.last_two()
+        result = diff.compare(b, a, db=db, blob_dir=corpus.blob_dir)
+
+        merged = compress_run(result, blob_dir=corpus.blob_dir, merge_duplicates=True)
+        mirror_records = [r for r in merged.records if "mirror" in r.slug]
+        assert len(mirror_records) == 1
+        assert len(mirror_records[0].mirrors) == 1
+        assert "identical change" in mirror_records[0].render()
+        # the unrelated page is untouched by the merge
+        assert any("unrelated" in r.slug for r in merged.records)
+
+        ctx = DigestContext(result=result, db=db)
+        for slug in ("mirror-one", "mirror-two"):
+            hits = [u for u in ctx._by_slug if slug in u]
+            assert hits and ctx.find(hits[0]) is not None
+
+
+def test_quiet_runs_render_identically_with_flags_off(corpus):
+    """Both features are A/B arms: with the flags off the rendering must stay
+    byte-identical to what every graded run read."""
+    result = _many_moved(corpus)
+    a = compress_run(result, blob_dir=corpus.blob_dir).render()
+    b = compress_run(result, blob_dir=corpus.blob_dir,
+                     collapse_terse=False, merge_duplicates=False).render()
+    assert a == b
+
+
+def test_audit_evidence_counts_a_mirror_pair_once(corpus):
+    """A finding citing two pages with byte-identical changed lines gets ONE evidence
+    block and a note for the mirror — one story must not arrive as two confirmations."""
+    from changefeed.digest import audit as A
+    from changefeed.digest.findings import Finding
+
+    shared_before = "# API\n\nThe endpoint accepts `beta-a` or `beta-b` or 38 more.\n"
+    shared_after = "# API\n\nThe endpoint accepts `beta-a` or `beta-b`.\n"
+    corpus.populate([record("twin-a", markdown=shared_before),
+                     record("twin-b", markdown=shared_before)])
+    corpus.snap()
+    corpus.populate([record("twin-a", markdown=shared_after),
+                     record("twin-b", markdown=shared_after)])
+    corpus.snap()
+    with ChangeDB(corpus.changes_db) as db:
+        b, a = db.last_two()
+        result = diff.compare(b, a, db=db, blob_dir=corpus.blob_dir)
+    by_url = {c.url: c for c in result.changes}
+    finding = Finding(impact="editorial", urls=sorted(by_url),
+                      summary="The beta header enumeration was shortened on two pages")
+    out = A.audit_finding(finding, by_url, blob_dir=corpus.blob_dir)
+    with_lines = [e for e in out.evidence if e.lines]
+    noted = [e for e in out.evidence if "identical change to" in e.note]
+    assert len(with_lines) == 1
+    assert len(noted) == 1
+
+
+# --- issue/accuracy/07: revision marking and adaptive slots ---------------
+
+# The real lines from the #5 -> #6 supported-models diff — the type specimen. The old
+# retention note, the new one with the opt-out clause INSERTED (a revision, 0.88
+# Jaccard), the genuinely new 5.1 twin (which pairs with its template sibling — the
+# measured over-pairing boundary), and the genuinely new GLM prose (no pair).
+_FABLE5_OLD = ("> For Claude Fable 5, prompts and responses are retained for 30 days for "
+               "trust and safety purposes. This data is processed by automated safety "
+               "systems and may in certain instances be flagged for human review. The "
+               "data is deleted automatically after 30 days, except in the event of a "
+               "safety investigation, or legal requirements to retain the data beyond 30 "
+               "days. Anthropic is a limited subprocessor for this safety retention "
+               "purpose.")
+_FABLE5_NEW = _FABLE5_OLD.replace(
+    "purposes. This data",
+    "purposes. Customers who opt out of data retention cannot use Claude Fable 5. "
+    "This data")
+_FABLE51_NEW = _FABLE5_NEW.replace("Claude Fable 5,", "Claude Fable 5.1,").replace(
+    "cannot use Claude Fable 5.", "cannot use Claude Fable 5.1.")
+_GLM_NEW_PROSE = ("GLM-5.3 is a text-only mixture of experts (MoE) language model "
+                  "developed by Zhipu AI for coding and agentic tool use. It supports "
+                  "function calling, parallel tool calls, structured output, and long "
+                  "context.")
+# Same shape as the real 11k-char region rows (verified against the blobs at 0.93 in
+# the issue's measurement; a row that long cannot live in a test file): a model list
+# where one entry swaps.
+_ROW_OLD = ("| `ap-northeast-1` | The following models are supported:   "
+            "- [`databricks-grok-4-6`](https://docs.databricks.com/aws/en/machine-"
+            "learning/foundation-model-apis/supported-models#grok) "
+            "- [`databricks-gpt-5-5-pro`](https://docs.databricks.com/aws/en/machine-"
+            "learning/foundation-model-apis/supported-models#gpt) |")
+_ROW_NEW = _ROW_OLD.replace("databricks-gpt-5-5-pro", "databricks-gpt-6-astra")
+
+
+def test_revised_lines_pair_and_new_prose_does_not():
+    """The founding incident's two shapes, from the real texts: a rewritten row (Grok
+    reappearing on `+`) and the type specimen's inserted clause both pair; the
+    genuinely new GLM description does not."""
+    from changefeed.classify import is_revision, token_set
+
+    old_side = [token_set(_ROW_OLD), token_set(_FABLE5_OLD)]
+    assert is_revision(_ROW_NEW, old_side)
+    assert is_revision(_FABLE5_NEW, old_side)
+    assert not is_revision(_GLM_NEW_PROSE, old_side)
+
+
+def test_template_sibling_overpairing_is_the_documented_boundary():
+    """The Fable 5.1 twin is genuinely NEW but pairs with its template sibling —
+    measured at 0.84+, not fixable by threshold. The tag's wording therefore claims
+    only 'a close variant existed', never 'not new'."""
+    from changefeed.classify import is_revision, token_set
+
+    assert is_revision(_FABLE51_NEW, [token_set(_FABLE5_OLD)])
+
+
+def test_marked_excerpt_tags_revisions_and_flags_off_stay_identical(corpus):
+    """`~` on the shown revised lines; with the flag off the excerpt is byte-identical
+    to what every graded run read, and the ranking path never sees the flag."""
+    before = f"# Models\n\n{_FABLE5_OLD}\n\nOther prose.\n"
+    after = f"# Models\n\n{_FABLE5_NEW}\n\n{_GLM_NEW_PROSE}\n\nOther prose.\n"
+    change = next(iter(_two_sided(corpus, before, after).values()))
+
+    plain = compress(change, blob_dir=corpus.blob_dir)
+    marked = compress(change, blob_dir=corpus.blob_dir, mark_revisions=True)
+    assert "~" in marked.excerpt
+    assert "~" not in plain.excerpt
+    # The tag spends budget characters, so the marked excerpt truncates slightly
+    # earlier; content-wise it is the same excerpt.
+    stripped = marked.excerpt.replace("~", "")
+    assert stripped == plain.excerpt[:len(stripped)]
+    assert marked.severity == plain.severity and marked.signals == plain.signals
+
+
+def test_adaptive_slots_show_the_third_restriction_line(corpus):
+    """The type specimen was the page's third restriction line on a two-slot excerpt.
+    With 3+ restriction lines the excerpt grows (to at most four slots); pages under
+    the threshold and runs without the flag are unchanged."""
+    restr = [
+        "Feature Alpha is not supported on serverless compute in any region at all.",
+        "Feature Beta cannot be used together with customer-managed keys on AWS today.",
+        "Feature Gamma is unavailable for workspaces with the compliance profile on.",
+    ]
+    before = "# Limits\n\nIntro prose.\n"
+    after = "# Limits\n\nIntro prose.\n\n" + "\n\n".join(restr) + "\n"
+    change = next(iter(_two_sided(corpus, before, after).values()))
+
+    plain = compress(change, blob_dir=corpus.blob_dir)
+    wide = compress(change, blob_dir=corpus.blob_dir, adaptive_slots=True)
+    assert plain.excerpt.count(" | ") == 1          # two slots
+    assert wide.excerpt.count(" | ") == 2           # three slots for three restrictions
+    assert "Gamma" in wide.excerpt or "Alpha" in wide.excerpt
+
+    # A page with fewer restriction lines is untouched by the flag.
+    calm = next(iter(_two_sided(
+        corpus, "# P\n\nOld words here.\n", "# P\n\nNew words here, quite different.\n").values()))
+    assert compress(calm, blob_dir=corpus.blob_dir, adaptive_slots=True).excerpt == \
+        compress(calm, blob_dir=corpus.blob_dir).excerpt
+
+
+def test_unaligned_diff_marks_revisions_only_under_the_flag(corpus):
+    """get_diff's unaligned fallback is the other place pairing information dies; the
+    tag appears there under the arm's flag and nowhere without it."""
+    from changefeed.diff import render_diff
+
+    filler = ("A very long filler paragraph that repeats to push the page over the "
+              "alignment limit. " * 6000)
+    before = f"# Big\n\n{filler}\n{_FABLE5_OLD}\n"
+    after = f"# Big\n\n{filler}\n{_FABLE5_NEW}\n{_GLM_NEW_PROSE}\n"
+    change = next(iter(_two_sided(corpus, before, after).values()))
+
+    plain = render_diff(change, blob_dir=corpus.blob_dir)
+    marked = render_diff(change, blob_dir=corpus.blob_dir, mark_revisions=True)
+    assert "too large to align" in plain and "~" not in plain
+    assert "~+" in marked and f"+{_GLM_NEW_PROSE[:30]}" in marked
+
+
+def test_a_moved_line_stays_invisible_to_changed_sides():
+    """Regression guard on the multiset behaviour marking depends on: a line identical
+    on both sides is not a change and must never surface for pairing at all."""
+    from changefeed.classify import changed_sides
+
+    before = "# T\n\nA stable line.\nAn old line.\n"
+    after = "An old line.\n# T\n\nA stable line.\n"
+    removed, added = changed_sides(before, after)
+    assert removed == [] and added == []
+
+
+@pytest.mark.asyncio
+async def test_the_issue_07_arms_wire_their_legend_and_versions(corpus, monkeypatch):
+    """The marking arm must carry its `~` legend into the prompt and both arms must
+    stamp their prompt_version suffix — an unmarked arm would poison the ledger."""
+    import claude_agent_sdk
+
+    from changefeed.digest import session as session_mod
+
+    seen = {}
+
+    async def fake_query(*, prompt, options, **_):
+        seen["prompt"] = prompt
+        return
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+    _changed(corpus)
+    with ChangeDB(corpus.changes_db) as db:
+        before, after = db.last_two()
+        result = diff.compare(before, after, db=db, blob_dir=corpus.blob_dir)
+
+        out = await session_mod.run_digest(result, db=db, blob_dir=str(corpus.blob_dir),
+                                           boost_restrictions=True, mark_revisions=True)
+        assert "**A `~` sign marks a revised line.**" in seen["prompt"]
+        assert out.findings == []  # stub session records nothing
+
+        await session_mod.run_digest(result, db=db, blob_dir=str(corpus.blob_dir),
+                                     boost_restrictions=True, adaptive_slots=True)
+        assert "`~` sign" not in seen["prompt"]

@@ -47,6 +47,7 @@ import yaml
 from changefeed import diff
 from changefeed.db import ChangeDB
 from changefeed.digest import compress_run
+from changefeed.digest.compress import CHARS_PER_TOKEN
 
 MODEL = "claude-opus-5"
 DEFAULT_NEEDLES = Path("docs/changefeed-needles.yaml")
@@ -95,7 +96,9 @@ def load_run(args, expected: dict | None) -> str:
                   f"the run it was read from.", file=sys.stderr)
             raise SystemExit(2)
         result = diff.compare(pair[0], pair[1], db=db, blob_dir=args.blob_dir)
-    return compress_run(result, blob_dir=args.blob_dir).render()
+    return compress_run(result, blob_dir=args.blob_dir,
+                        collapse_terse=args.collapse_terse,
+                        merge_duplicates=args.merge_duplicates).render()
 
 
 async def ask(prompt: str) -> str:
@@ -130,6 +133,19 @@ async def ask(prompt: str) -> str:
             blocks += [b.text for b in message.content if isinstance(b, TextBlock)]
         elif isinstance(message, ResultMessage) and message.subtype == "success":
             result = message.result
+            # The only free source of REAL token counts this project has: the estimator
+            # (`CHARS_PER_TOKEN = 3.5`) had never been checked against an actual count
+            # until issue/accuracy/06 read it off a probe run here. Includes the
+            # harness's own overhead, so it upper-bounds the payload.
+            if message.usage:
+                u = message.usage
+                actual = (u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
+                          + u.get("cache_read_input_tokens", 0))
+                print(f"  actual input tokens {actual:,} "
+                      f"(fresh {u.get('input_tokens', 0):,}, cache-write "
+                      f"{u.get('cache_creation_input_tokens', 0):,}, cache-read "
+                      f"{u.get('cache_read_input_tokens', 0):,}) vs estimate "
+                      f"~{int(len(prompt) / CHARS_PER_TOKEN):,}", file=sys.stderr)
     answer = result or "\n".join(blocks)
     if not answer.strip():
         print("  ! the model returned no text — this is a probe failure, not a recall "
@@ -241,13 +257,13 @@ async def run(args) -> int:
             return 1
     run_text = load_run(args, spec.get("snapshots"))
     print(f"run: {len(run_text.splitlines())} lines, {len(run_text):,} chars "
-          f"(~{len(run_text) // 3500}k tokens, approx)")
+          f"(~{int(len(run_text) / CHARS_PER_TOKEN) // 1000}k tokens, approx)")
     print(f"needles: {len(needles)}  ranks {sorted(n['rank'] for n in needles)}")
 
     if args.dry_run:
         calls = len(needles) if args.mode == "locate" else 1
         print(f"\ndry run — would make {calls} call(s) to {MODEL}, "
-              f"~{calls * len(run_text) // 3500}k input tokens total. Nothing sent.")
+              f"~{calls * int(len(run_text) / CHARS_PER_TOKEN) // 1000}k input tokens total. Nothing sent.")
         return 0
 
     if args.mode == "locate":
@@ -299,6 +315,10 @@ def main() -> None:
     ap.add_argument("--blob-dir")
     ap.add_argument("--save", help="directory to write the raw answer to (use a scratch "
                                    "dir; these are experiment artifacts, not results)")
+    ap.add_argument("--collapse-terse", action="store_true",
+                    help="probe the collapsed rendering (issue 06)")
+    ap.add_argument("--merge-duplicates", action="store_true",
+                    help="probe the duplicate-merged rendering (issue 06)")
     ap.add_argument("--dry-run", action="store_true",
                     help="show what would be sent, and its size, without calling anything")
     args = ap.parse_args()

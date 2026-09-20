@@ -124,7 +124,20 @@ LOW_DELTA_CHARS = 900
 # behaviour. Stamped into run reports for the PROMPT_VERSION reason: a changed lexicon
 # changes severity, excerpts, and the digest's reading order, and without a stamp two runs
 # from different lexicons are silently incomparable.
-CLASSIFY_VERSION = 1
+# v2 (2026-09-19, with PROMPT_VERSION 3): restriction-boosted excerpts became the digest
+# default (issue/accuracy/13). STATUS and severity are UNCHANGED — the boost reorders and
+# windows excerpt lines only, so feed reports themselves are identical; the stamp moves so
+# input provenance and report provenance agree.
+# v3 (2026-09-19): two rules from issue/accuracy/12. A same-body move whose paths differ
+# only in the layout's date segment classifies as `metadata`, not `moved` — the
+# 2026-09-11 site-wide re-date put 4,805 `moved` records into the feed and prompt for a
+# field the vendor can rewrite at will. And a same-body move whose paths differ only by
+# a date segment *present on one side* is `moved`/`pipeline` — the signature of the
+# 2026-09-19 layout flattening (docs/layout-migration-plan.md), our churn, excluded from
+# the feed and prompt. STATUS, severity, and excerpts are UNCHANGED; kind labels and the
+# summary table differ on re-date windows, so re-rendered historic reports will not
+# match committed ones byte-for-byte on such pairs.
+CLASSIFY_VERSION = 3
 
 # Status and policy language. Empirically the highest-value signal in the corpus: it is
 # what distinguishes "this function left Beta" and "this property is no longer supported"
@@ -261,6 +274,15 @@ def severity(counts: dict[str, int]) -> float:
 
     Size is not a term here at all, for the same reason it is not one in `weigh` beyond the
     floor: the largest change in the first run rewrote 4.2 MB of a machine-generated dump.
+
+    **Do not add a volume term back "gently" either** (issue/accuracy/08, measured
+    2026-09-19 against the graded ledger). Damping by `min(1, changed_lines/L0)` sinks
+    the best-cited pages of graded-true findings by hundreds of ranks even at L0=3,
+    and a <=100-char "minor band" would capture the best-cited page of 34/76 graded
+    true findings on #5 -> #6 and 18/36 on #6 -> #7 — the tiny changes at the head ARE
+    half the confirmed-true material, and model recall is not rank-gated (true findings
+    cite pages at ranks 874 and 948). One caveat that is real: exact-severity tie
+    blocks run to 172 pages wide, so a rank is only meaningful +/- its tie block.
     """
     lines = max(counts.get("changed_lines", 0), 1)
     return sum(weight * min(1.0, counts.get(name, 0) / lines)
@@ -282,6 +304,38 @@ def weigh(before: str | None, after: str | None) -> str:
     if severity(counts) > 0:
         return SUBSTANTIVE
     return LOW if counts["changed_chars"] < LOW_DELTA_CHARS else SUBSTANTIVE
+
+
+# Revision pairing (issue/accuracy/07). `changed_sides` is a multiset diff, so a table
+# rewritten whole surfaces an edited row as an unrelated `-` line and `+` line — and the
+# `+` line reads as an addition, which is where the Grok 4.6 false-newness class began.
+# Pairing happens only at RENDER time on the handful of lines actually shown; the ranking
+# path never calls it (a full run's shown lines pair in ~1-2 s, measured).
+#
+# The threshold is measured, not guessed: on the motivating diffs, true revisions score
+# 0.84-0.97 Jaccard and genuinely new prose <=0.1; a read sample of shown lines at >=0.7
+# was all genuine revisions. One documented over-pairing class remains: a genuinely new
+# line whose TEMPLATE sibling existed (the Fable 5.1 retention line pairs at 0.84 with
+# the old Fable 5 line) — which is why the tag may only ever claim "a close variant
+# existed", never "not new".
+REVISION_OVERLAP = 0.7
+_PAIR_TOKEN = re.compile(r"[a-z0-9][a-z0-9_.-]*")
+
+
+def token_set(line: str) -> frozenset:
+    return frozenset(_PAIR_TOKEN.findall(line.lower()))
+
+
+def is_revision(line: str, opposite_token_sets: list[frozenset], *,
+                threshold: float = REVISION_OVERLAP) -> bool:
+    """Does a close variant of this line exist on the other side of the diff?"""
+    tokens = token_set(line)
+    if not tokens:
+        return False
+    for other in opposite_token_sets:
+        if other and len(tokens & other) / len(tokens | other) >= threshold:
+            return True
+    return False
 
 
 def changed_text(before: str, after: str) -> str:

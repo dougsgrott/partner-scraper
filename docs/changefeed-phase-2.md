@@ -588,9 +588,40 @@ inflates artifact flags (10 raw, mostly parser limits), so raw flag counts stop 
 comparable across arms once quoting enters. The draw hit none of these spots — the
 per-cluster checks, not the sample rate, carry the verdict.
 
-**Adoption:** the boost alone is recommended for default (Doug's call — flip the flag and
-fold `+r` into the next PROMPT_VERSION); the quote rule and the injection are not
-adopted, singly or in combination.
+**Adoption — decided (2026-09-19, [issue/accuracy/13](../issue/accuracy/13-boost-adoption.md)):
+the boost is the default.** The confirm replicated the improvement on the second,
+larger, structurally different pair: a fresh n=18 full-page baseline for #6 → #7 graded
+v2 at **79%** (resolving the earlier suspicion-selected "1 of 4" impression), and the
+boost run on the same pair graded **94%** (17/1/0, $4.85; re-graded 2026-09-20 to
+**83%**, 15/3/0 — the experiment record's Addendum 3), with the original partly in the
+DENY plain-noun class the boost never claimed to fix. `PROMPT_VERSION` is now **"3" =
+the v2 prompt text, unchanged, plus restriction-boosted input**, defined in the code
+beside the constant with the declined rule-10 draft explicitly excluded;
+`CLASSIFY_VERSION` moved to 2 in the same change; `--no-boost-restrictions` records
+`3-r`. Watch-item on the record: the confirm run wrote 62 findings against the
+baseline's 79 and left the Kimi-retirement and token-counting needle pages uncited —
+run variance and mechanism are indistinguishable at n=1, and the per-pair needle files
+remain the standing regression check on every future run. The quote rule and the
+injection stay unadopted; marking (+p) and slots (+e) remain flagged arms per
+issue/accuracy/07.
+
+### The issue-07 arms (2026-09-19): the type specimen finally written, and the bet answered
+
+Two more arms on the boost base, one input change each: **marking** (`2+r+p`, $3.39 —
+shown lines with a close variant on the other side render `~-`/`~+`, threshold 0.7
+measured, plus a legend rule; get_diff's unaligned fallback tags too) and **adaptive
+slots** (`2+r+e`, $3.66 — up to four excerpt slots on restriction-heavy pages, which puts
+the Fable 5 clause itself on screen). Draws: 8/1/0 and 10/10. The cluster results invert
+the draws: **the marking arm wrote the type specimen** — finding 615, "[breaking] Claude
+Fable 5 on Databricks now carries the added condition that customers who opt out of data
+retention cannot use it", past-claim in the right direction, clause quoted — the finding
+no run had ever produced; **the slots arm, with the clause visible but unmarked, wrote
+"(as already stated for Fable 5)"** — the invented-past signature's third independent
+reproduction, first time without injection. The bet issue 07 was revised around is
+answered yes: in-diff provenance sticks where instructions did not, and visibility
+without provenance actively triggers the neutralisation. Full record in
+[issue/accuracy/07](../issue/accuracy/07-reappearing-lines.md); both arms preserved in
+`changes.db`; v2 restored as current.
 Caveat stated once: n=10 per arm on one launch-week pair — the flag counts over all
 findings and the per-cluster checks point the same way as the draw rates, but a
 confirming boost run on #6 → #7 (~$5) is the cheap way to be surer. The quote volume of
@@ -599,6 +630,30 @@ sentence splits inside quotes, "now read …" verbs) — harden before trusting 
 that volume. All arms are preserved in `changes.db` under their `prompt_version`s;
 v2 was restored as the current set and renders byte-identical to the committed digest.
 
+### Prompt size, counted for real (2026-09-19)
+
+Every token figure above was an estimate from `CHARS_PER_TOKEN = 3.5`, and the first real
+count (read off a probe run's usage) showed the constant was **35% optimistic**: the
+"~198k-token" #6 → #7 prompt billed **305,337 input tokens**, and the "~105k" and "~88k"
+runs were ~150k and ~135k. The constant is corrected to 2.3 (the collapsed probe's
+estimate then landed within 0.1% of actual), `digest.py compress --count-tokens` asks the
+free endpoint for the exact number, and the probes print actuals. Historic figures in
+this document are left as written — they are what the estimates said at the time — and
+should be read ×1.5.
+
+Two more results from [issue/accuracy/06](../issue/accuracy/06-prompt-size.md): **recall
+is intact at the real 305k** (locate-mode 3/3 on the #6 → #7 needles; the digest-mode
+misses were top-30 ranking choices), which re-dates the "no long-context failure"
+conclusion with direct evidence and makes the terse collapse a **cost** fix — the branch
+the accuracy plan pre-registered. The collapse and the duplicate-merge are built behind
+`digest.py run --collapse-terse / --merge-duplicates` (findings record `+c`/`+m`): on the
+event pair they cut the prompt 301k → 137k tokens (−55%, ~$2/run), on a quiet pair −21%
+(all from merging the ~250 mirror-identical records). Their graded A/B is sequenced
+after the boost confirm ([issue 13](../issue/accuracy/13-boost-adoption.md)). The
+`compress.py` promise is amended in the open: every change is a line, **or enumerable
+through the `list_changes` session tool**; and the audit now counts a mirror pair as one
+piece of evidence, not two.
+
 ## What would change this decision
 
 - **A run an order of magnitude larger.** ~12,000 changes would be ~900k compressed tokens
@@ -606,8 +661,11 @@ v2 was restored as the current set and renders byte-identical to the committed d
   quiet Anthropic week drops a run to ~450 changes (~35k tokens), and a launch week twice as
   heavy as the one measured gives ~2,400 (~185k). Both are one session, which is why
   [issue 04](../issue/changefeed-phase-2-readiness/04-quiet-week-measurement.md) no longer
-  blocks this decision.
+  blocks this decision. *(These figures predate the estimator correction above — read them
+  ×1.5, which tightens the headroom: an order-of-magnitude event week would genuinely
+  threaten the window without the collapse.)*
 - **Measured recall failure** on the seeded changes above, unfixed by hierarchical reduce.
+  *(Tested at the real 305k on 2026-09-19: not observed.)*
 - **A need for per-page depth** rather than a digest — a different product, and it would
   revive A.
 

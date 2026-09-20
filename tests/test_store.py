@@ -36,19 +36,20 @@ def data_dir(tmp_path):
 
 # --- layout ---------------------------------------------------------------
 
-def test_path_is_company_category_month_slug(data_dir):
+def test_path_is_company_category_slug(data_dir):
     path = layout.path_for(record(), data_dir)
-    assert path == data_dir / "databricks/delta/2026-07/aws-en-delta-x.md"
+    assert path == data_dir / "databricks/delta/aws-en-delta-x.md"
 
 
-def test_undated_pages_get_their_own_bucket(data_dir):
-    path = layout.path_for(record(updated_date=None), data_dir)
-    assert path.parent.name == layout.UNDATED
-
-
-def test_published_date_is_the_fallback(data_dir):
-    rec = record(updated_date=None, published_date=date(2024, 3, 2))
-    assert layout.path_for(rec, data_dir).parent.name == "2024-03"
+def test_dates_never_reach_the_path(data_dir):
+    """The 2026-09-11 re-date relocated 71% of the corpus because the path carried
+    `updated_date` (issue/accuracy/12). A file's identity is now date-free: re-dated,
+    undated, and published-date-only records all land at the same place."""
+    plain = layout.path_for(record(), data_dir)
+    assert plain == layout.path_for(record(updated_date=None), data_dir)
+    assert plain == layout.path_for(record(updated_date=date(2026, 9, 11)), data_dir)
+    assert plain == layout.path_for(
+        record(updated_date=None, published_date=date(2024, 3, 2)), data_dir)
 
 
 def test_category_cannot_escape_the_corpus_root(data_dir):
@@ -60,7 +61,7 @@ def test_category_cannot_escape_the_corpus_root(data_dir):
 
 def test_nested_category_stays_one_segment(data_dir):
     path = layout.path_for(record(category="sql/language-manual"), data_dir)
-    assert path.parent.parent.name == "sql-language-manual"
+    assert path.parent.name == "sql-language-manual"
 
 
 # --- writer ---------------------------------------------------------------

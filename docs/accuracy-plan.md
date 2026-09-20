@@ -3,9 +3,17 @@
 > Written 2026-09-18, from the review of `docs/session-2026-09-18-lessons.md` and from
 > checks run against the working tree that day (regex behaviour, STATUS coverage, the 410
 > passing tests). Figures trace to that document, to `docs/changefeed-phase-2.md`, and to
-> `reports/changefeed/0005..0006.*` / `0006..0007.*`. The work is divided into twelve
-> issues in [`issue/accuracy/`](../issue/accuracy/README.md); this file is the frame they
-> hang on.
+> `reports/changefeed/0005..0006.*` / `0006..0007.*`. The work is divided into issues in
+> [`issue/accuracy/`](../issue/accuracy/README.md); this file is the frame they hang on.
+>
+> **Revised 2026-09-19.** Issues 01–05 are done; the A/B record is
+> `docs/digest-experiments-2026-09-19.md` ($15.26, four arms, one pair). The first
+> clause of *What would change this plan* fired: the graded arms reshaped the
+> sequencing, which now lives in the issue README rather than here. Issue
+> [13](../issue/accuracy/13-boost-adoption.md) was added for the decision the arms
+> opened — confirming and adopting the boost. One constraint hardened from preference
+> to rule: **one input change per arm** (the combined arm's interference terms are the
+> evidence).
 
 ## What this plan is for
 
@@ -72,6 +80,7 @@ record why it was rejected.
 | [10](../issue/accuracy/10-standing-instruments.md) | Promote one-off measurements into instruments | code | instrument drift between windows |
 | [11](../issue/accuracy/11-raw-noise-canary.md) | Detect a new noise pattern before an event does | code + measurement | reactive noise-pattern discovery |
 | [12](../issue/accuracy/12-date-keyed-paths.md) | Corpus paths keyed on a vendor-controlled date | decision | the re-date relocated 71% of the corpus |
+| [13](../issue/accuracy/13-boost-adoption.md) | Confirm and adopt the boost (added 2026-09-19) | measurement + decision | the default flip: missing #6 → #7 baseline, sample size, version axes |
 
 ## Dependency order
 

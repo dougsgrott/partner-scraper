@@ -86,8 +86,11 @@ before and after is the single most interesting cell in that table.
       retention restriction became its own finding — the boosted excerpt showed exactly
       that clause — while the Fable 5 twin (third restriction line on a two-slot
       excerpt) is still unreported, as the excerpt measurement predicted. n=10 on one
-      pair is evidence, not proof; **recommended for default**, which is Doug's call
-      (flip the flag default and fold `+r` into the next PROMPT_VERSION)
+      pair is evidence, not proof; **recommended for default**, which is Doug's call.
+      Adoption mechanics — the #6 → #7 confirm run, its missing baseline, the sample
+      size, and *which version axis* `+r` folds into — are
+      [13](13-boost-adoption.md); the original sketch ("fold `+r` into the next
+      PROMPT_VERSION") conflated the axes this issue's option C separated
 
 ## Tests
 

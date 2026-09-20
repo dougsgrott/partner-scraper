@@ -1,3 +1,6 @@
+# SECOND PASS 2026-09-20 (issue/accuracy/13 second-grader box): rows 333, 351, 305
+# re-graded blind (post-compaction, claims re-verified from blobs before reading the
+# recorded verdicts). All three CONFIRMED true; the 10/10 rate of this arm stands.
 # Verdict worksheet — findings from #5 -> #6, prompt v2+r (EXPERIMENT ARM R:
 # restriction-boosted, clause-windowed excerpts — issue/accuracy/02). Seeded draw,
 # graded full-page against the stored blobs on 2026-09-19, the day of the run.
@@ -14,7 +17,7 @@ strata:  # population and quota per impact at draw time; weight = population/dra
   breaking: {population: 5, drawn: 1, weight: 5.0}
   editorial: {population: 12, drawn: 1, weight: 12.0}
 verdicts:
-  - id: 333
+  - id: 333   # re-grade 2026-09-20: confirmed true
     impact: breaking
     summary: "The change data feed requirements are raised from Databricks Runtime 18 LTS or above to Databricks Runtime 19 or above (with Unity Catalog tables and row tracki"
     verdict: "true"
@@ -38,13 +41,13 @@ verdicts:
     verdict: "true"
     method: "full-page"
     notes: "whats-coming page; the incremental-formula / full-snapshot terms are new in the after text and the framing matches the announcement genre."
-  - id: 351
+  - id: 351   # re-grade 2026-09-20: confirmed true
     impact: additive
     summary: "Databricks adds `databricks-claude-fable-5-1`, `databricks-gemini-3-8-flash` and `databricks-gpt-6-astra` as hosted models, with limits, priority-mode, region a"
     verdict: "true"
     method: "full-page"
     notes: "All three named models verified genuinely new (absent from #5). Notably does NOT repeat the Grok/GLM false newness of v2 finding 197."
-  - id: 305
+  - id: 305   # re-grade 2026-09-20: confirmed true
     impact: additive
     summary: "Turn-scoped system messages are in beta behind the `mid-conversation-system-clear-at-2026-08-21` header: `clear_at: \"next_user_message\"` renders a mid-conversat"
     verdict: "true"

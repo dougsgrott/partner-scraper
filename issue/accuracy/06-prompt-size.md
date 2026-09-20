@@ -1,6 +1,11 @@
 # 06 — The 198k-token prompt: collapse, count, re-probe
 
-**Status:** open (2026-09-18) · **Kind:** code + measurement · **Effort:** ~4–6 h
+**Status:** done except the gated digest A/B (2026-09-19), uncommitted — counted,
+re-probed, collapse and merge built behind flags; see *Measured* and *Done* below. The
+headline: **the "198k-token" prompt was really 305k** — the estimator was off by 35% —
+**and recall is intact even there** (locate 3/3), so collapse is a cost fix, not an
+accuracy fix, exactly the branch the plan pre-registered ·
+**Kind:** code + measurement · **Effort:** ~4–6 h
 **Depends on:** [01](01-verdict-ledger.md) for graded A/B; needle sets from 01 for the
 re-probe · **Blocks:** nothing
 
@@ -14,9 +19,12 @@ re-date event flowed straight through `compress`, whose `TERSE_KINDS` lines are 
 collapsed. Three distinct exposures:
 
 1. **Recall at 198k is asserted, not measured.** A long flat list of near-identical lines
-   is exactly the shape the probe was built to distrust, and the probe refuses to run on
-   any pair but #1 → #2 (correctly — its needles are pair-specific), so the assertion
-   cannot currently be tested at all. The 60%-of-top-25 citation figure for #6 → #7 is
+   is exactly the shape the probe was built to distrust. *(Revised 2026-09-19: the
+   blocker is gone — the probe's needles were pinned to #1 → #2 until
+   [01](01-verdict-ledger.md) produced per-pair needle files, and
+   `probe_recall.py --needles docs/changefeed-needles-0006..0007.yaml` now runs
+   digest-mode at the real #6 → #7 size. The assertion is testable and simply
+   untested.)* The 60%-of-top-25 citation figure for #6 → #7 is
    confounded by the ranking's own defects ([08](08-tiny-change-severity.md)) and says
    nothing clean about recall.
 2. **Token counts are estimated, roughly, and nothing branches on them.**
@@ -64,10 +72,10 @@ duplicate-body groups; identical changed-line sets can compress to one record ci
 both paths. Also stops the mirror double-counting evidence in audits — one story
 currently arrives as two records and can be cited as two confirmations.
 
-**E — re-probe recall at real size.** Needle sets per pair
-([01](01-verdict-ledger.md)) un-pin the probe from #1 → #2; run `digest`-mode at the
-#6 → #7 size, and again post-collapse. This is the number that says whether A is an
-accuracy fix or only a cost fix.
+**E — re-probe recall at real size.** The per-pair needle files exist
+(`docs/changefeed-needles-0006..0007.yaml`, built by [01](01-verdict-ledger.md)); run
+`digest`-mode at the #6 → #7 size, and again post-collapse. This is the number that
+says whether A is an accuracy fix or only a cost fix.
 
 ## The number to get first
 
@@ -75,18 +83,45 @@ E, and C's estimate-vs-actual delta. Both are cheap (one probe run ~$5; the coun
 free). A's token saving is measurable for free today via `digest.py compress` on the
 stored pair with a prototype collapse.
 
+## Sequencing (added 2026-09-19, after the A/B arms)
+
+The arms turned "one input change per arm" from a preference into a rule — the
+combined arm's interference terms are the evidence. Consequences here:
+
+- [13](13-boost-adoption.md)'s boost confirm on #6 → #7 runs against **current**
+  compress (no collapse), and this issue's collapse A/B runs as its own arm afterward —
+  never folded into the confirm, or neither result attributes.
+- 13's fresh full-page baseline draw of the stored v2 #6 → #7 findings doubles as this
+  issue's baseline; do not grade it twice.
+
 ## Acceptance criteria
 
-- [ ] Actual token count printed beside the estimate for every compress; the constant's
-      observed error recorded here
-- [ ] Probe recall at ~198k measured and recorded; the "no long-context failure"
-      conclusion re-dated with its new evidence, or revised
+- [x] Actual token count printed beside the estimate for every compress; the constant's
+      observed error recorded here — *`--count-tokens` on `digest.py compress` (free
+      endpoint, graceful without credentials), and the probe now prints actuals from
+      `ResultMessage.usage`. Observed error of `CHARS_PER_TOKEN = 3.5`: **−35%**
+      (693,238 chars billed as 305,337 input tokens = 2.27 chars/token). The constant
+      is now 2.3; the collapsed probe's estimate landed within 0.1% of actual.*
+- [x] Probe recall at real size measured and recorded — *at **305k actual tokens**
+      (not 198k): digest-mode 1/4, but locate-mode **3/3** on the misses, so the
+      digest misses were top-30 ranking choices, not retrieval failures. The
+      "no long-context failure" conclusion re-dates to 2026-09-19 at 305k. A second
+      digest-mode probe on the collapsed+merged rendering (137,786 actual tokens)
+      returned the identical hit pattern and 30/30 valid paths — the reformat neither
+      helps nor hurts selection, and grouped lines parse cleanly.*
 - [ ] Collapse (A or B) behind a flag; one graded A/B re-run on the stored event pair
-      before it becomes default
-- [ ] The `compress.py` docstring's promise updated in the same change that alters its
-      truth, with the amendment called out in the change description
-- [ ] Duplicate-group merge measured: how many records it removes on #6 → #7, and audit
-      evidence no longer counts a mirror pair as two pages
+      before it becomes default — *built behind `--collapse-terse`; the **graded digest
+      A/B is gated behind [13](13-boost-adoption.md)'s confirm per the sequencing
+      section, and is now a pure cost decision* (~$2/run on event weeks)*
+- [x] The `compress.py` docstring's promise updated in the same change that alters its
+      truth — *"every change is a line, **or enumerable through a tool**", amended in
+      the open with the reasoning in place*
+- [x] Duplicate-group merge measured and audit evidence deduplicated — *262 redundant
+      records on #5 → #6 (largest group: 115 API-reference mirrors losing one
+      beta-header line), 246 on #6 → #7; `--merge-duplicates` renders each group as one
+      record naming the mirrors; `audit_finding` now shows a mirror pair as one
+      evidence block plus an "identical change to …" note (default on — the audit is
+      human-facing, not model input)*
 
 ## Tests
 
@@ -94,3 +129,37 @@ stored pair with a prototype collapse.
 - `list_changes` enumerates exactly the collapsed set, nothing else
 - a mirror pair (identical changed-line multiset, two paths) compresses to one record
   citing both, and `find()` resolves either path to it
+- flags off ⇒ rendering byte-identical to what every graded run read
+- audit evidence counts a mirror pair once
+
+## Measured (2026-09-19)
+
+Probe spend ~$7.50 (one digest-mode at full size, three locate calls, one digest-mode
+at collapsed size), against Claude Code CLI credentials.
+
+| number | value |
+|---|---|
+| real tokens, #6 → #7 rendered prompt | **305,337** (est. was 198k; ratio 2.27 chars/token) |
+| real tokens, #5 → #6 | ~135k by the corrected estimator (recorded as "88k") |
+| locate recall at 305k | **3/3** — no long-context retrieval failure |
+| digest-mode top-30, full vs collapsed rendering | identical (1/4 needles chosen, 0 invented paths, both) |
+| collapse+merge, #6 → #7 | 693,238 → 316,132 chars ≈ **301k → 137k tokens (−55%)**; 6,329 → 1,072 records + 137 group lines |
+| collapse+merge, #5 → #6 (quiet pair) | 311k → 248k chars (−21%, all from the merge; collapse is a no-op at 17 terse records) |
+| duplicate records removed by merge | 262 (#5 → #6) / 246 (#6 → #7) |
+
+**Consequences worth stating.** Every historical prompt-size figure in the docs was
+understated ~1.5×: the runs graded in `docs/digest-experiments-2026-09-19.md` read
+~135k-token prompts, and the #6 → #7 digest read ~300k. The 500k warning threshold,
+under the old constant, would not have fired until ~1.5M real tokens — past the 1M
+window; under the corrected constant it means what it says. Cost scales with real
+tokens, which is most of why #6 → #7 cost $4.68 against #5 → #6's $2.81.
+
+## Done (2026-09-19)
+
+`compress_run(collapse_terse=, merge_duplicates=)` + `TerseGroup` + `mirrors` on
+records; the `list_changes` session tool (kind, optional category, paginated) in
+`tools.py`; flags on `digest.py compress|run` (findings record `+c` / `+m`) and on
+`probe_recall.py`; `--count-tokens` on compress; `CHARS_PER_TOKEN` corrected with the
+measurement in its comment; audit mirror-evidence dedup; five new tests. The digest
+A/B for `+c`/`+m` remains the one open box, sequenced after
+[13](13-boost-adoption.md)'s boost confirm so the arms stay attributable.

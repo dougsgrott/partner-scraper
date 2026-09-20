@@ -83,10 +83,12 @@ fetch generations, not from `changes.py list`.
   `tests/test_generations.py::…survives overwrite`.
 - `scripts/fetch.py` archives by default after every successful non-dry run
   (`--no-archive`, `--archive-now`, `--label`).
-- **Trap:** `scripts/changes.py run --fetch` refreshes through `run_fetch` directly and
-  **does not archive**. The documented workflow therefore runs `fetch.py --refresh`, then
-  `changes.py run` without `--fetch`. *(challenge: two code paths do the same job, one of them
-  without archiving)*
+- **Trap (closed 2026-09-19, issue/accuracy/09):** `scripts/changes.py run --fetch` used to
+  refresh through `run_fetch` directly and **did not archive** — the workflow above routed
+  around it by memory. Both entry points now share one decision,
+  `generations.archive_after`: a fetch archives unless it was a dry run, fetched nothing,
+  or was given an explicit `--no-archive`. The two-command workflow still works; it is no
+  longer load-bearing.
 
 ### Measurements
 | | gen1 → gen2 (11 days) | gen2 → gen3 (9 days) |
@@ -107,7 +109,10 @@ files). Weekly, that is ~3.7 GB/year.
   collapsed) found the real cause (CSS-module suffixes).
 - **A noise-pattern list only learns a pattern is missing when a vendor event exposes it.**
   The gen2 → gen3 re-date made 4,966 pages look changed. No mechanism detects a new noise
-  pattern before it swamps a run. *(challenge)*
+  pattern before it swamps a run. *(challenge — answered 2026-09-19, issue/accuracy/11:
+  every fetched run now churns its generation pair and alarms when unknown noise exceeds
+  20% of survivors; `measure.py residue` clusters the residue, and re-derived both known
+  patterns blind from the archive)*
 - The open idea in `docs/raw-archive.md`: store raw bytes verbatim but *address* them by a
   normalised hash. That gets C's saving without discarding any page, and makes `raw_sha256`
   usable for skipping re-extraction. It isn't built.
@@ -136,7 +141,8 @@ to come out much lower than the launch week.
 Consequences:
 - `data/databricks/<category>/<YYYY-MM>/` is keyed on that date, so 71% of the corpus
   relocated (extract: "moved 5273"). *(challenge: a file path keyed on a date the vendor
-  controls)*
+  controls — feed-side answered 2026-09-19, issue/accuracy/12: date-only moves now classify
+  as `metadata`; the layout question is inventoried there)*
 - `docs/changefeed.md` had validated `updated_date` as a proxy for Databricks change volume.
   This event broke it.
 - The digest prompt carried all 5,034 of these as one-liners (see §4).
@@ -270,7 +276,10 @@ Tests: 410 pass, ruff clean.
    conditional on which events fell in the window, and three windows is not a distribution.
 5. **One-off analysis scripts carried the key measurements** (raw churn, duplicate breakdown,
    recall vs ranking). Nothing re-runs them, so the next window has to redo them.
-   *(challenge)*
+   *(challenge — answered 2026-09-19, issue/accuracy/10: `scripts/measure.py` re-runs all
+   three against stored data and reproduced this record's figures; the noise patterns are
+   named and tested in `scraper/fetch/noise.py`; the §3 cross-validation runs with every
+   `changes.py run` and fails the run on a hard mismatch)*
 6. **Git discipline:** an earlier session created a worktree and commits without being asked,
    and the owner reversed them. The standing rule is in `CLAUDE.md`.
 
@@ -279,10 +288,14 @@ Tests: 410 pass, ruff clean.
   newness check limited to versioned names.
 - Compress: moves and metadata-only changes are not collapsed, so vendor re-dates cost ~100k
   tokens.
-- Layout: corpus paths keyed on vendor-controlled `updated_date`.
-- Raw archive: noise patterns are discovered reactively; normalised content-addressing is not
+- Layout: corpus paths keyed on vendor-controlled `updated_date`. *(closed 2026-09-19 —
+  issue/accuracy/12: date-only moves classify as `metadata`, and the owner adopted option
+  A the same day: the date segment is gone from corpus paths entirely
+  (docs/layout-migration-plan.md, snapshot #8))*
+- Raw archive: noise patterns are discovered reactively *(closed 2026-09-19 —
+  issue/accuracy/11's canary + clusterer)*; normalised content-addressing is not
   built; replay of a generation through an extractor is not built; no retention policy yet.
-- `changes.py run --fetch` bypasses archiving.
+- `changes.py run --fetch` bypasses archiving. *(closed 2026-09-19 — issue/accuracy/09)*
 - Ranking density favours one-line code tweaks.
 - Duplicate bodies: the Admin API mirror doubles evidence for the same change.
 - Disk: 43 GB free on the host and falling from causes outside this project.

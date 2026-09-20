@@ -25,12 +25,22 @@ logger = logging.getLogger(__name__)
 
 MODEL = "claude-opus-5"
 
-# Bump whenever PROMPT changes. Findings carry it, so a later reader can tell whether two
-# runs are comparable — a reworded prompt changes the output and nothing else records it.
-PROMPT_VERSION = "2"
+# Bump whenever the model's INPUT changes — the prompt text or the default rendering of
+# the run it reads. Findings carry it, so a later reader can tell whether two runs are
+# comparable — a changed input changes the output and nothing else records it.
+PROMPT_VERSION = "3"
+# v3 (2026-09-19, issue/accuracy/13): **the v2 prompt TEXT, unchanged, plus
+# restriction-boosted input as the default** — `compress._excerpt`'s restriction-first,
+# clause-windowed excerpts (issue/accuracy/02). Adopted on two graded confirms: 10/10 vs
+# 7/10 on #5 -> #6, then 17/1 vs 15/4 at n=18 on #6 -> #7, with the graded error clusters
+# resolving both times. CLASSIFY_VERSION moved 1 -> 2 in the same change, so both stamps
+# agree on what changed. Explicitly NOT part of v3: the declined rule-10 quote draft
+# (QUOTE_RULE below — issue/accuracy/04 graded it and did not adopt it), the injection
+# appendix, revision marking (+p), and adaptive slots (+e) — each remains a flagged arm.
+# A run with the boost explicitly disabled records "3-r".
 # v2 (2026-09-18): the #5 -> #6 audit found four partly-true findings and one buried breaking
 # change, all from the same cause — claims going beyond what the page says. Rules 2, 4, 5 and 6
-# below each answer one observed failure; see docs/changefeed-phase-2.md.
+# each answer one observed failure; see docs/changefeed-phase-2.md.
 
 # Enough turns to read a few diffs and record a few dozen findings; low enough that a loop
 # cannot run away. A session that hits this has usually misunderstood the task.
@@ -114,6 +124,16 @@ QUOTE_RULE = """
     a paraphrase inside quotation marks counts as a fabrication.
 """
 
+# Issue/accuracy/07, the marking arm's legend. Numbered 10 like QUOTE_RULE: arms are one
+# input change each, so the two rules never ride in the same prompt.
+MARK_RULE = """
+10. **A `~` sign marks a revised line.** `~-`/`~+` mean a close variant of this line
+    exists on the other side of the diff: the line was EDITED, not added or removed
+    whole. A name on a `~+` line is not new just for being there — but something in
+    that line did change; `get_diff` shows the pair. An unmarked `+` line has no close
+    variant before, and an unmarked `-` line none after.
+"""
+
 
 @dataclass
 class DigestResult:
@@ -167,9 +187,13 @@ async def run_digest(
     max_turns: int = MAX_TURNS,
     max_budget_usd: float | None = None,
     replace: bool = True,
-    boost_restrictions: bool = False,
+    boost_restrictions: bool = True,
     quote_evidence: bool = False,
     inject_restrictions: bool = False,
+    collapse_terse: bool = False,
+    merge_duplicates: bool = False,
+    mark_revisions: bool = False,
+    adaptive_slots: bool = False,
 ) -> DigestResult:
     """Run one digest session over a whole diff.
 
@@ -180,7 +204,9 @@ async def run_digest(
     """
     from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
-    run = compress_run(result, blob_dir=blob_dir, boost_restrictions=boost_restrictions)
+    run = compress_run(result, blob_dir=blob_dir, boost_restrictions=boost_restrictions,
+                       collapse_terse=collapse_terse, merge_duplicates=merge_duplicates,
+                       mark_revisions=mark_revisions, adaptive_slots=adaptive_slots)
     logger.info("digest input: %d changes, ~%dk tokens",
                 len(run.records), run.approx_tokens // 1000)
 
@@ -199,11 +225,17 @@ async def run_digest(
         if retired:
             logger.info("superseded %d previous finding(s) for this pair", retired)
 
-    version = (PROMPT_VERSION + ("+r" if boost_restrictions else "")
+    # v3 includes the boost; disabling it is the marked deviation now.
+    version = (PROMPT_VERSION + ("" if boost_restrictions else "-r")
                + ("+q" if quote_evidence else "")
-               + ("+inj" if inject_restrictions else ""))
+               + ("+inj" if inject_restrictions else "")
+               + ("+c" if collapse_terse else "")
+               + ("+m" if merge_duplicates else "")
+               + ("+p" if mark_revisions else "")
+               + ("+e" if adaptive_slots else ""))
     ctx = DigestContext(result=result, db=db, blob_dir=blob_dir, data_root=data_root,
-                        model=model, prompt_version=version)
+                        model=model, prompt_version=version,
+                        mark_revisions=mark_revisions)
     options = ClaudeAgentOptions(
         model=model,
         mcp_servers={"digest": build_server(ctx)},
@@ -218,8 +250,8 @@ async def run_digest(
 
     out = DigestResult(before=result.before.id, after=result.after.id,
                        changes=len(run.records))
-    prompt = PROMPT.format(run=run.render(),
-                           extra_rules=QUOTE_RULE if quote_evidence else "") + appendix
+    extra = QUOTE_RULE if quote_evidence else (MARK_RULE if mark_revisions else "")
+    prompt = PROMPT.format(run=run.render(), extra_rules=extra) + appendix
     try:
         async for message in query(prompt=prompt, options=options):
             out.turns += 1

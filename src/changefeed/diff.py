@@ -15,6 +15,7 @@ them.
 from __future__ import annotations
 
 import difflib
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,6 +33,49 @@ KINDS = (ADDED, REMOVED, MODIFIED, MOVED, METADATA)
 
 # Fields whose change, with the body untouched, counts as a metadata-only change.
 METADATA_FIELDS = ("title", "description", "updated_date", "category")
+
+# The date segment of a corpus path: data/<company>/<category>/<YYYY-MM|undated>/<file>.
+_DATE_SEGMENT = re.compile(r"^(\d{4}-\d{2}|undated)$")
+
+
+def _date_only_move(old_path: str | None, new_path: str | None) -> bool:
+    """True when two corpus paths differ only in the layout's date segment.
+
+    The layout keys that segment on the vendor's `updated_date`, a field the vendor can
+    rewrite site-wide with no content change — the 2026-09-11 re-date relocated 4,805
+    byte-identical pages this way (issue/accuracy/12). Under this layout's semantics
+    such a move *is* a metadata change, so `_classify_page` files it as one; `moved`
+    stays reserved for a page whose place in the tree genuinely changed.
+    """
+    if not old_path or not new_path:
+        return False
+    a, b = old_path.split("/"), new_path.split("/")
+    if len(a) != len(b) or len(a) < 2 or a[:-2] != b[:-2] or a[-1] != b[-1]:
+        return False
+    return bool(_DATE_SEGMENT.match(a[-2]) and _DATE_SEGMENT.match(b[-2]))
+
+
+def _date_segment_dropped(old_path: str | None, new_path: str | None) -> bool:
+    """True when the paths differ only by a date segment present on one side.
+
+    The signature of the 2026-09-19 layout migration (docs/layout-migration-plan.md):
+    `data/c/cat/2026-09/slug.md` -> `data/c/cat/slug.md`. That relocation is *our*
+    churn — the vendor changed nothing — so `_classify_page` attributes it `pipeline`,
+    which keeps it out of the feed and the digest prompt like all pipeline churn.
+    Symmetric on purpose: a rollback would be our churn too.
+    """
+    if not old_path or not new_path:
+        return False
+    a, b = old_path.split("/"), new_path.split("/")
+    if len(a) == len(b) + 1:
+        longer, shorter = a, b
+    elif len(b) == len(a) + 1:
+        longer, shorter = b, a
+    else:
+        return False
+    return (len(longer) >= 2
+            and bool(_DATE_SEGMENT.match(longer[-2]))
+            and longer[:-2] + longer[-1:] == shorter)
 
 # A 4.77 MB page exists in this corpus. Diffs are truncated, and the truncation is always
 # announced — quietly eliding half a diff is how a reader is misled.
@@ -184,11 +228,17 @@ def _classify_page(
                           signals=counts, severity=classify.severity(counts))
 
     # Same body from here on: the page did not change, its filing or its metadata did.
-    if old.get("file_path") != new.get("file_path"):
-        return PageChange(url, MOVED, classify.CONTENT, classify.LOW, old, new)
+    path_moved = old.get("file_path") != new.get("file_path")
+    if path_moved and not _date_only_move(old.get("file_path"), new.get("file_path")):
+        cause = (classify.PIPELINE
+                 if _date_segment_dropped(old.get("file_path"), new.get("file_path"))
+                 else classify.CONTENT)
+        return PageChange(url, MOVED, cause, classify.LOW, old, new)
 
+    # A date-only move falls through to here: its cause is the `updated_date` edit
+    # itself, so it is filed with the metadata change that produced it.
     moved_fields = [f for f in METADATA_FIELDS if old.get(f) != new.get(f)]
-    if moved_fields:
+    if moved_fields or path_moved:
         # A retitled page is worth seeing; a redescribed one usually is not.
         weight = classify.SUBSTANTIVE if "title" in moved_fields else classify.LOW
         return PageChange(url, METADATA, classify.CONTENT, weight, old, new)
@@ -219,6 +269,7 @@ def render_diff(
     context: int = 3,
     max_lines: int = MAX_DIFF_LINES,
     max_chars: int = MAX_DIFF_CHARS,
+    mark_revisions: bool = False,
 ) -> str:
     """A unified diff for one change, truncated with an explicit notice.
 
@@ -232,7 +283,7 @@ def render_diff(
         return ""
 
     if max(len(before), len(after)) > MAX_ALIGNED_CHARS:
-        return _unaligned(change, before, after, max_lines)
+        return _unaligned(change, before, after, max_lines, mark=mark_revisions)
 
     lines = list(difflib.unified_diff(
         before.splitlines(),
@@ -254,22 +305,38 @@ def render_diff(
     return text
 
 
-def _unaligned(change: PageChange, before: str, after: str, max_lines: int) -> str:
+def _unaligned(change: PageChange, before: str, after: str, max_lines: int,
+               mark: bool = False) -> str:
     """A changed-lines listing for pages too large to align.
 
     Not a unified diff and shaped so it cannot be mistaken for one: no hunk headers, and a
-    leading note. The lines are real and correctly attributed to added or removed; what is
-    missing is the pairing between them and the surrounding context.
+    leading note. The lines are real and correctly attributed to added or removed. An
+    aligned diff shows an edited row as an adjacent -/+ pair; that pairing is exactly what
+    this path loses, so revised lines are tagged instead (`~-`/`~+`,
+    issue/accuracy/07) — this output is read by the model mid-session, and an untagged
+    `+` here is where "Grok 4.6 added" came from.
     """
     removed = Counter(before.splitlines()) - Counter(after.splitlines())
     added = Counter(after.splitlines()) - Counter(before.splitlines())
     budget = max(2, max_lines // 2)
+    rem_shown = list(removed.elements())[:budget]
+    add_shown = list(added.elements())[:budget]
     out = [
         f"# {change.url}",
         (f"# {len(before):,} -> {len(after):,} characters — too large to align, so these "
          f"are changed lines without context, not a diff."),
-        f"# {sum(removed.values()):,} removed, {sum(added.values()):,} added.",
+        f"# {sum(removed.values()):,} removed, {sum(added.values()):,} added."
+        + (" A ~ sign marks a line with a close variant on the other side: edited, "
+           "not added or removed whole." if mark else ""),
     ]
-    out += [f"-{line}" for line in list(removed.elements())[:budget]]
-    out += [f"+{line}" for line in list(added.elements())[:budget]]
+    if mark:
+        rem_tokens = [classify.token_set(x) for x in removed]
+        add_tokens = [classify.token_set(x) for x in added]
+        out += [("~-" if classify.is_revision(line, add_tokens) else "-") + line
+                for line in rem_shown]
+        out += [("~+" if classify.is_revision(line, rem_tokens) else "+") + line
+                for line in add_shown]
+    else:
+        out += [f"-{line}" for line in rem_shown]
+        out += [f"+{line}" for line in add_shown]
     return "\n".join(out)

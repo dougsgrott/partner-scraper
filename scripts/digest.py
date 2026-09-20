@@ -58,7 +58,11 @@ def cmd_compress(args) -> int:
         result = diff.compare(before, after, db=db, blob_dir=args.blob_dir)
 
     run = compress_run(result, blob_dir=args.blob_dir,
-                       boost_restrictions=args.boost_restrictions)
+                       boost_restrictions=args.boost_restrictions,
+                       collapse_terse=args.collapse_terse,
+                       merge_duplicates=args.merge_duplicates,
+                       mark_revisions=args.mark_revisions,
+                       adaptive_slots=args.adaptive_slots)
     text = run.render()
 
     print(f"compressed {before.name} -> {after.name}")
@@ -69,6 +73,25 @@ def cmd_compress(args) -> int:
         print("  ! over half a context window — see docs/changefeed-phase-2.md, "
               "'What would change this decision'")
 
+    if args.count_tokens:
+        # The free count-tokens endpoint, so the estimate above stops being the only
+        # number. Needs the `anthropic` SDK (the `enrich` extra) and credentials —
+        # an API key or an `ant auth login` profile; degrades to a hint without them.
+        try:
+            import anthropic
+
+            from changefeed.digest.session import MODEL
+            n = anthropic.Anthropic().messages.count_tokens(
+                model=MODEL, messages=[{"role": "user", "content": text}])
+            drift = (run.approx_tokens - n.input_tokens) / n.input_tokens
+            print(f"  actual tokens    {n.input_tokens:,}  "
+                  f"(estimate off by {drift:+.0%})")
+        except ModuleNotFoundError:
+            print("  actual tokens    unavailable — install the anthropic SDK "
+                  "(uv sync --extra enrich)", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 — credentials/network; the hint matters
+            print(f"  actual tokens    unavailable — {type(exc).__name__}: needs "
+                  f"ANTHROPIC_API_KEY or an `ant auth login` profile", file=sys.stderr)
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
         print(f"  written          {args.out}")
@@ -95,7 +118,11 @@ def cmd_run(args) -> int:
             max_budget_usd=None if args.no_budget else args.max_budget,
             boost_restrictions=args.boost_restrictions,
             quote_evidence=args.quote_evidence,
-            inject_restrictions=args.inject_restrictions))
+            inject_restrictions=args.inject_restrictions,
+            collapse_terse=args.collapse_terse,
+            merge_duplicates=args.merge_duplicates,
+            mark_revisions=args.mark_revisions,
+            adaptive_slots=args.adaptive_slots))
         print(outcome.render())
         return _write(db, before, after, len(result.changes), args)
 
@@ -283,9 +310,19 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Build a digest from a run of changes.")
     sub = ap.add_subparsers(dest="command", required=True)
 
-    boost_help = ("restriction-first, clause-windowed excerpts (issue/accuracy/02) — "
-                  "changes what the model reads; findings record prompt_version '+r'. "
-                  "Not the default until a graded A/B says so")
+    boost_help = ("restriction-first, clause-windowed excerpts — THE DEFAULT since "
+                  "prompt v3 (issue/accuracy/13, two graded confirms); "
+                  "--no-boost-restrictions disables it and findings record '3-r'")
+    collapse_help = ("A/B arm (issue 06): group moved/metadata pages one line per "
+                     "kind+category (saved ~55%% of the event-pair prompt); "
+                     "list_changes enumerates them; findings record '+c'")
+    merge_help = ("A/B arm (issue 06): pages with byte-identical changed lines render "
+                  "as one record naming the group; findings record '+m'")
+    mark_help = ("A/B arm (issue 07): tag shown lines that are close revisions of the "
+                 "other side with '~' in excerpts and unaligned diffs; findings "
+                 "record '+p'")
+    slots_help = ("A/B arm (issue 07 E): pages with 3+ restriction lines get up to 4 "
+                  "excerpt slots; findings record '+e'")
 
     p = sub.add_parser("compress", help="deterministic stage: size what a session would read")
     p.add_argument("before", nargs="?")
@@ -294,7 +331,15 @@ def main() -> None:
     p.add_argument("--blob-dir")
     p.add_argument("--out", help="write the full compressed run to a file")
     p.add_argument("--head", type=int, help="print the first N lines")
-    p.add_argument("--boost-restrictions", action="store_true", help=boost_help)
+    p.add_argument("--boost-restrictions", action=argparse.BooleanOptionalAction,
+                   default=True, help=boost_help)
+    p.add_argument("--collapse-terse", action="store_true", help=collapse_help)
+    p.add_argument("--merge-duplicates", action="store_true", help=merge_help)
+    p.add_argument("--mark-revisions", action="store_true", help=mark_help)
+    p.add_argument("--adaptive-slots", action="store_true", help=slots_help)
+    p.add_argument("--count-tokens", action="store_true",
+                   help="also count the session prompt for real via the free count-tokens "
+                        "endpoint (needs the anthropic SDK and credentials)")
     p.set_defaults(func=cmd_compress)
 
     p = sub.add_parser("run", help="one digest session over a whole run (spends money)")
@@ -308,13 +353,18 @@ def main() -> None:
                    help=f"stop the session past this USD spend (default {DEFAULT_BUDGET_USD})")
     p.add_argument("--no-budget", action="store_true",
                    help="run without a spend cap — say so explicitly")
-    p.add_argument("--boost-restrictions", action="store_true", help=boost_help)
+    p.add_argument("--boost-restrictions", action=argparse.BooleanOptionalAction,
+                   default=True, help=boost_help)
     p.add_argument("--quote-evidence", action="store_true",
                    help="A/B arm (issue 04): prompt rule to quote the exact old text; "
                         "findings record prompt_version '+q'")
     p.add_argument("--inject-restrictions", action="store_true",
                    help="A/B arm (issue 05): append the absence scan's candidates to "
                         "the prompt; findings record prompt_version '+inj'")
+    p.add_argument("--collapse-terse", action="store_true", help=collapse_help)
+    p.add_argument("--merge-duplicates", action="store_true", help=merge_help)
+    p.add_argument("--mark-revisions", action="store_true", help=mark_help)
+    p.add_argument("--adaptive-slots", action="store_true", help=slots_help)
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("render", help="re-render stored findings — no model, no cost")

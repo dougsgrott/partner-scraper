@@ -122,6 +122,32 @@ def cmd_diff(args) -> int:
     return 0
 
 
+def _fetch_and_archive(cfg, *, archive: bool = True) -> None:
+    """Refresh through the fetch layer, then archive the generation it left in `raw/`.
+
+    Archiving here matches `scripts/fetch.py` (issue/accuracy/09): this used to be the
+    one fetch path that did not archive, and bytes never hard-linked into
+    `raw-archive/` are gone the moment the next refresh overwrites `raw/`. The
+    decision of *whether* a run gets archived is `generations.archive_after`, shared
+    with `fetch.py`; only the printing differs.
+    """
+    from scraper.fetch import generations
+    from scraper.fetch.runner import run_fetch
+
+    print("\nfetching (conditional refresh, 1 req/s per host — this takes hours)\n")
+    summary = run_fetch(cfg, mode="refresh")
+    print(summary.render())
+
+    if not archive:
+        return
+    generation = generations.archive_after(summary)
+    if generation is None:
+        print("\n  nothing fetched — no generation archived")
+    else:
+        print(f"\narchived generation {generation.label}")
+        print(generation.render())
+
+
 def cmd_run(args) -> int:
     """Snapshot, optionally refresh, extract, snapshot again, diff, report."""
     with _db(args) as db:
@@ -142,13 +168,12 @@ def cmd_run(args) -> int:
     if args.fetch:
         # The one command in this repo that puts sustained load on someone else's
         # servers. Rate limits live in config/sources.yaml; there is no flag here.
-        from scraper.fetch.runner import run_fetch
-        print("\nfetching (conditional refresh, 1 req/s per host — this takes hours)\n")
-        print(run_fetch(cfg, mode="refresh").render())
+        _fetch_and_archive(cfg, archive=not args.no_archive)
 
     from scraper.extract import run_extract
     print("\nextracting\n")
-    print(run_extract(cfg, prune=not args.no_prune).render())
+    extract_summary = run_extract(cfg, prune=not args.no_prune)
+    print(extract_summary.render())
 
     after_result = snapshot.take(
         label=args.label, index_db=args.index_db, changes_db=args.changes_db,
@@ -164,7 +189,40 @@ def cmd_run(args) -> int:
         md, js = report.write(
             result, report_dir=args.report_dir, blob_dir=args.blob_dir, expand=args.expand)
         print(f"\n  report           {md}\n  json             {js}")
-    return 0
+
+        # The cross-check invariant (issue/accuracy/10): the change feed and the
+        # extract pass just measured the same window two ways, and a diff missing
+        # pages or an extractor double-writing shows up here at the run that
+        # introduces it, not at the next manual audit. The block lands in the report,
+        # and a hard mismatch fails the run.
+        from collections import Counter
+
+        from . import measure
+        causes = dict(Counter(c.cause for c in result.by_kind("modified")))
+
+        # With a fresh generation just archived (issue/accuracy/09 guarantees one per
+        # fetched run), the raw leg and its noise canary (issue/accuracy/11) come for
+        # ~70s: churn the last two generations and hand the reconciliation the
+        # window's real changes.
+        churn = modified = None
+        if args.fetch and not args.no_archive:
+            from scraper.fetch import generations
+            gens = generations.generations()
+            if len(gens) >= 2:
+                print("\ncomparing the two newest generations for the noise canary\n")
+                churn = measure.raw_churn(gens[-2].path, gens[-1].path)
+                modified = [{"url": c.url, "company": c.company}
+                            for c in result.by_kind("modified")
+                            if c.cause == "content"]
+
+        rec = measure.reconcile(result.counts(), causes,
+                                extract=extract_summary.to_dict(),
+                                churn=churn, modified=modified)
+        print()
+        print(rec.render())
+        with md.open("a", encoding="utf-8") as fh:
+            fh.write("\n" + rec.render() + "\n")
+    return 0 if rec.ok else 1
 
 
 def cmd_log(args) -> int:
@@ -263,6 +321,9 @@ def main() -> None:
     p = sub.add_parser("run", help="snapshot, [fetch], extract, snapshot, diff, report")
     p.add_argument("--fetch", action="store_true",
                    help="refresh the archive first (~2h at 1 req/s; off by default)")
+    p.add_argument("--no-archive", action="store_true",
+                   help="with --fetch: do not archive this run's bytes into raw-archive/ "
+                        "(they become unrecoverable once the next fetch overwrites raw/)")
     p.add_argument("--label", help="label for the snapshot this run takes")
     p.add_argument("--no-prune", action="store_true",
                    help="keep corpus files the index no longer claims")

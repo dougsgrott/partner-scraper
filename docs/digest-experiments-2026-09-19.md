@@ -199,3 +199,87 @@ any worksheet from the blobs; every verdict names its evidence)*
 | the instruments | `src/changefeed/digest/{verdicts,audit,absence}.py`; arm flags in `session.py` / `scripts/digest.py run --help` |
 | needle ground truth | `docs/changefeed-needles-0005..0006.yaml` |
 | the prior session record | `docs/session-2026-09-18-lessons.md` |
+
+
+---
+
+## Addendum (later on 2026-09-19): the issue-07 arms close the type-specimen story
+
+Two further arms, run after this document was first written, on the boost base
+(`2+r`, the presumptive default), one input change each. Full record:
+`issue/accuracy/07-reappearing-lines.md`.
+
+| arm | mechanism | findings | cost | draw | the type specimen |
+|---|---|---|---|---|---|
+| `2+r+p` marking | shown diff lines with a close variant on the other side are tagged `~` ("edited, not added or removed whole"), threshold 0.7 measured against the blobs | 63 | $3.39 | 8/1/0 | **written, correctly, for the first time in any run**: "[breaking] Claude Fable 5 on Databricks now carries the added condition that customers who opt out of data retention cannot use it… previously did not include the sentence…" |
+| `2+r+e` slots | up to four excerpt slots on restriction-heavy pages — the Fable 5 clause itself lands on screen | 92 | $3.66 | 10/10 | clause visible, then neutralised: "…cannot use Claude Fable 5.1 **(as already stated for Fable 5)**" |
+
+Which answers §5's open question and sharpens §6's lesson:
+
+1. **The invented-past signature is now 3-for-3 against visibility without
+   provenance** (both injection arms, then the slots arm — no injection involved) and
+   **0-for-1 with provenance marking**. Showing the model the added line does not
+   work; telling it in an appendix does not work; a per-line tag carried by the diff
+   itself, with a one-rule legend, worked on first trial. One trial per arm, as
+   always — but the mechanism is now isolated, not conjectured.
+2. The marking arm's pathway is worth knowing: the specimen line was NOT in its
+   excerpt. The tagged sibling plus the legend sent the model to `get_diff`, and the
+   aligned diff showed the insertion. Provenance's effect was to make the model
+   check, and the check produced the finding.
+3. The draws inverted the clusters again (10/10 for the arm that failed the
+   endpoint, 8/1/0 for the arm that delivered it) — §6.1 stands.
+4. What marking does not fix: name-level false newness (the GLM claim returned under
+   marking and was caught by the audit) and the `breaking` over-label class.
+
+Cumulative experiment spend including these arms and the issue-06 probes: ~$37.8.
+
+---
+
+## Addendum 2 (2026-09-19, issue 13): the confirm, and the flip
+
+The prescription in §7 was executed: a fresh n=18 full-page seeded baseline for the
+stored #6 → #7 v2 findings (**15/3/0; pooled full-page draw row 79%, 76% weighted** —
+the earlier "1 of 4" was the suspicion-selected subset, as §6.1 predicted), then one
+boost run on that pair (`2+r`, $4.85, 62 findings): **17/1/0 = 94%** (re-graded
+2026-09-20 to **15/3/0 = 83%** — Addendum 3), the original partly
+being the DENY plain-noun false-newness class on both pairs — outside every mechanism
+the boost touches. Pooled boost draws across both pairs: 27/28 true, against the
+baseline's 22/29.
+
+**Adopted: PROMPT_VERSION 3 = the v2 text plus boosted input, now the default**, with
+the version semantics written beside the constant (rule-10 explicitly excluded;
+`CLASSIFY_VERSION` 1 → 2 in the same change; `--no-boost-restrictions` records `3-r`).
+Honest residuals, on the record: the confirm wrote 62 findings vs the baseline's 79 and
+left two needle pages uncited (including the verified-true Kimi-retirement control) —
+variance vs mechanism unresolved at n=1, watched by the standing needle checks; and the
+`breaking` sample-swap over-label recurred once (prompt-side class). The 547-signature
+census (issue 04's follow-up): false "already documented/stated/existed" claims occur
+only under the three unadopted visibility-without-provenance arms, zero under v2, the
+boost, the quote rule, and marking. The second-grader check remains open for Doug
+(suggested rows are in issue 13). Cumulative experiment spend: **~$42.7**.
+
+## Addendum 3 (2026-09-20): the second-grader pass, and what it cost the headline
+
+Doug delegated the re-grade back; it ran as a targeted second pass by the **same
+model after context compaction** — each of the six suggested rows re-verified from
+the blobs *before* the recorded verdict was read. Blind-ish, not independent; the
+grader-built-the-arms bias is mitigated, not discharged.
+
+| row | arm | recorded | re-grade | note |
+|---|---|---|---|---|
+| 333 | 5→6 `2+r` | true | **confirmed** | the 18-LTS→19 requirement line is a verbatim before/after |
+| 351 | 5→6 `2+r` | true | **confirmed** | all three models absent at #5; limits row verbatim |
+| 305 | 5→6 `2+r` | true | **confirmed** | `clear_at` genuinely new; cache/thinking mechanics are the page's own words |
+| 763 | 6→7 `2+r` | partly | **confirmed** | same split: metastore half true, DENY false-newness |
+| 736 | 6→7 `2+r` | true | **DOWNGRADED partly** | the after page itself keeps `Needed: [...]` on delete endpoints — the universal claim is over-broad |
+| 785 | 6→7 `2+r` | true | **DOWNGRADED partly** | USE CONNECTION clause verbatim pre-existing at #6; folded in without the 'restate' marker the finding uses elsewhere |
+
+Both downgrades share one shape — the first pass verified the quoted change and
+stopped, missing contradicting material on the same page — which is exactly the
+failure the box was designed to catch. Ledger updated (notes carry both passes):
+the confirm arm reads **15/3/0 = 83%**, and the adoption headline "94% vs 79%"
+is retired in favour of **83% vs 79%**. Two caveats, cutting opposite ways: the
+six rows were suspicion-selected (worst-first — the downgrades don't extrapolate
+to the arm), and the baseline's 19 grades were *not* re-graded (its 79% carries
+the same first-pass leniency risk). The adoption stands on the replicated
+direction and consistent error clusters, not on the headline. Spend: $0.

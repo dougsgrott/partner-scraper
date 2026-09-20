@@ -1,10 +1,17 @@
 """Build the on-disk path for a corpus page. See PLAN.md §7.3.
 
-    data/{company}/{category}/{YYYY-MM}/{slug}.md
+    data/{company}/{category}/{slug}.md
 
 `category` comes from the URL path (`scraper.category`), not from a model's judgement, so
 the same page lands in the same place on every run — re-extraction overwrites in place
 instead of accumulating near-duplicates under drifting folder names.
+
+Until 2026-09-19 the path carried a `{YYYY-MM|undated}` segment keyed on the vendor's
+`updated_date`. The 2026-09-11 Databricks re-date rewrote that field site-wide with no
+content change and relocated 71% of the corpus in one event — a file's identity must not
+include a field the vendor can rewrite at will (issue/accuracy/12, option A; migration:
+docs/layout-migration-plan.md). The dates still live in the frontmatter and `index.db`,
+which is where temporal queries belong.
 """
 
 from __future__ import annotations
@@ -15,13 +22,6 @@ from ..category import slug_for
 from ..records import Extracted
 
 DEFAULT_DATA_DIR = Path("data")
-UNDATED = "undated"
-
-
-def date_bucket(record: Extracted) -> str:
-    """`YYYY-MM` from the updated date, else the published date, else `undated`."""
-    when = record.updated_date or record.published_date
-    return when.strftime("%Y-%m") if when else UNDATED
 
 
 def path_for(record: Extracted, base_dir: Path | None = None) -> Path:
@@ -31,7 +31,6 @@ def path_for(record: Extracted, base_dir: Path | None = None) -> Path:
         base
         / _safe(record.company)
         / _safe(record.category)
-        / date_bucket(record)
         / f"{slug_for(record.source_url)}.md"
     )
 

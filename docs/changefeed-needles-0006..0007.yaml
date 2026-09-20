@@ -3,6 +3,12 @@
 # diffs on that date. `rank` is the change's position among the 1,156 modifications of
 # this run ordered by severity, descending.
 #
+# A rank is only meaningful +/- its exact-severity tie block (issue/accuracy/08):
+# within a block the order is the (company, url) tiebreak. retired-models-policy's
+# recorded 321 and a recomputation's 459 are the same sev-2.0 block (ranks 302-473);
+# token-counting's 717 and 638 the same sev-1.0 block (631-720). Ranks here are
+# stable identifiers for `--rank`; do not "correct" them.
+#
 # Run with:
 #   uv run python scripts/probe_recall.py --needles docs/changefeed-needles-0006..0007.yaml --dry-run
 #

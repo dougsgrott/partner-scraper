@@ -223,6 +223,77 @@ def test_a_page_that_only_changes_description_is_metadata(corpus):
     assert not result.by_kind(diff.MODIFIED)
 
 
+def test_a_vendor_redate_is_metadata_not_moved(corpus):
+    """Issue/accuracy/12: the layout keys paths on `updated_date`, so the 2026-09-11
+    site-wide re-date relocated 4,805 byte-identical pages and the feed called every
+    one `moved`. A date-only relocation is filed with the metadata change causing it;
+    `moved` is reserved for a page whose place in the tree genuinely changed."""
+    from datetime import date
+
+    corpus.populate([record("a", updated_date=date(2026, 6, 23))])
+    corpus.snap()
+    corpus.populate([record("a", updated_date=date(2026, 9, 11))])
+    corpus.snap()
+
+    result = corpus.diff_last_two()
+
+    assert not result.by_kind(diff.MOVED)
+    assert len(result.by_kind(diff.METADATA)) == 1
+    assert result.by_kind(diff.METADATA)[0].weight == classify.LOW
+
+
+def test_date_only_move_detection_uses_the_real_redate_paths():
+    """Paths verbatim from the stored #6 -> #7 re-date event."""
+    assert diff._date_only_move(
+        "data/databricks/admin/2026-07/aws-en-admin.md",
+        "data/databricks/admin/2026-09/aws-en-admin.md")
+    assert diff._date_only_move(
+        "data/databricks/admin/undated/aws-en-admin.md",
+        "data/databricks/admin/2026-09/aws-en-admin.md")
+    # a category change is a real move, whatever the date segment does
+    assert not diff._date_only_move(
+        "data/databricks/admin/2026-07/aws-en-admin.md",
+        "data/databricks/streaming/2026-09/aws-en-admin.md")
+    # a renamed file is a real move
+    assert not diff._date_only_move(
+        "data/databricks/admin/2026-07/aws-en-admin.md",
+        "data/databricks/admin/2026-09/aws-en-admin-renamed.md")
+    # a non-date segment differing is a real move even if it looks nothing like a date
+    assert not diff._date_only_move(
+        "data/databricks/admin/v1/aws-en-admin.md",
+        "data/databricks/admin/v2/aws-en-admin.md")
+    assert not diff._date_only_move(None, "data/databricks/admin/2026-09/a.md")
+
+
+def test_the_layout_flattening_is_our_move_not_the_vendors():
+    """The 2026-09-19 migration (docs/layout-migration-plan.md): a same-body move
+    that only drops the date segment is `moved`/`pipeline` — excluded from the feed
+    and the digest prompt like all of our own churn."""
+    assert diff._date_segment_dropped(
+        "data/databricks/admin/2026-09/aws-en-admin.md",
+        "data/databricks/admin/aws-en-admin.md")
+    assert diff._date_segment_dropped(  # a rollback is our churn too
+        "data/databricks/admin/aws-en-admin.md",
+        "data/databricks/admin/undated/aws-en-admin.md")
+    assert not diff._date_segment_dropped(  # a real relocation, not the migration
+        "data/databricks/admin/2026-09/aws-en-admin.md",
+        "data/databricks/streaming/aws-en-admin.md")
+    assert not diff._date_segment_dropped(
+        "data/databricks/admin/2026-09/aws-en-admin.md",
+        "data/databricks/admin/2026-07/aws-en-admin.md")
+
+    old = {"content_hash": "h", "company": "databricks",
+           "file_path": "data/databricks/admin/2026-09/aws-en-admin.md"}
+    new = {"content_hash": "h", "company": "databricks",
+           "file_path": "data/databricks/admin/aws-en-admin.md"}
+    change = diff._classify_page("https://docs.databricks.com/aws/en/admin",
+                                 old, new, None, diff.DiffResult(None, None))
+
+    assert change.kind == diff.MOVED
+    assert change.cause == classify.PIPELINE
+    assert not change.is_feed_worthy
+
+
 # --- attribution: the regression this package exists for ------------------
 
 def test_our_own_extractor_churn_is_never_reported_as_vendor_change(corpus):

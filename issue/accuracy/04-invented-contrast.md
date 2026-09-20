@@ -151,3 +151,37 @@ verifier, converting the paraphrase class (the check's main blind spot) into the
 class (where measured precision is 2/2). **C is rejected**: ~6 quote-claims per run do
 not justify a standing model call, and the remaining paraphrase misses are bounded and
 recorded rather than silent.
+
+## Follow-up (2026-09-19, after the arms)
+
+Recorded so the drafted-for-adoption paragraph above is not misread later: **rule B was
+declined** (`docs/digest-experiments-2026-09-19.md` §7). The rule is obeyed and adds
+verifiability, not accuracy — the newness class is untouched by quoting discipline, and
+in the combined arm the rule's old-text gravity helped push `breaking` labels the wrong
+way. The verifier ships and runs on every finding regardless; that part stands. If a
+PROMPT_VERSION 3 is ever minted, it belongs to the boost adoption
+([13](13-boost-adoption.md)) and **must not inherit the rule-10 draft** by carrying this
+section's "PROMPT_VERSION 3" label forward.
+
+Two open items live here, both small:
+
+- **Harden `quoted_claims` before trusting its flags at induced volume** — the three
+  parsing limits the A/B exposed (escaped quotes inside quotes; sentence-splitting
+  inside quoted text; "now read \"Y\"" not classified present-side). At organic volume
+  (~6 quote-claims/run) measured precision was 2/2, so this is a precondition for any
+  future re-test of the rule, not an urgency. Recorded so a future rise in flag counts
+  is not misread as a model regression.
+- **The 547 signature — measured (2026-09-19, via [13](13-boost-adoption.md)).**
+  Census over all seven #5 → #6 runs, adjudicated instance by instance: **false**
+  "already documented/stated/existed" claims occur once each under injection (417),
+  the combined arm (547) and the slots arm (684) — i.e. exactly the arms that surface
+  restriction content without per-line provenance — and **zero** times under v2, the
+  boost, the quote rule, and the marking arm. The marking arm's one signature match
+  (619, "the page already documented 36-hour/30-day expiry") is **true**, verified
+  against the before text — the phrase used correctly to separate old from new. One
+  census false positive recorded: "history already present" as a technical statement
+  (717), not a past-claim. **Decision: nothing to build** — under the adoption
+  candidates the false-signature rate is zero. If adaptive slots are ever adopted
+  without marking, the narrow trigger (signature phrase + subject, verified against
+  the cited before text) becomes worth building; it is sided and checkable like a
+  quote.

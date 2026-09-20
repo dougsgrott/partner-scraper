@@ -58,6 +58,8 @@ class DigestContext:
     data_root: str | None = None
     model: str | None = None
     prompt_version: str | None = None
+    # Issue/accuracy/07 marking arm: get_diff tags revised lines on unaligned pages.
+    mark_revisions: bool = False
     recorded: list[Finding] = field(default_factory=list)
     rejected: list[str] = field(default_factory=list)
     # How the model chose to record. Turns are what a session costs, so a drift back to
@@ -111,7 +113,8 @@ def make_handlers(ctx: DigestContext) -> dict[str, Any]:
         change = ctx.find(str(args.get("url", "")))
         if change is None:
             return _text(f"no change in this run matches {args.get('url')!r}", is_error=True)
-        body = render_diff(change, blob_dir=ctx.blob_dir, max_chars=MAX_DIFF_CHARS)
+        body = render_diff(change, blob_dir=ctx.blob_dir, max_chars=MAX_DIFF_CHARS,
+                           mark_revisions=ctx.mark_revisions)
         return _text(body or "the stored body for this change is unavailable")
 
     async def read_page(args: dict) -> dict:
@@ -130,6 +133,31 @@ def make_handlers(ctx: DigestContext) -> dict[str, Any]:
             return _text(f"no change in this run matches {args.get('url')!r}", is_error=True)
         count = ctx.inbound().get(change.url, 0)
         return _text(f"{count} corpus pages link to {change.url}")
+
+    async def list_changes(args: dict) -> dict:
+        """Enumerate changes by kind — the tool half of the amended nothing-is-dropped
+        promise: when moved/metadata pages render as grouped lines, every one of them
+        is still reachable here."""
+        kind = str(args.get("kind", "")).strip().lower()
+        category = str(args.get("category", "")).strip()
+        offset = int(args.get("offset") or 0)
+        matches = [c for c in ctx.result.changes
+                   if c.kind == kind
+                   and (not category or c.category == category)
+                   and c.cause != "pipeline"]
+        if not matches:
+            kinds = sorted({c.kind for c in ctx.result.changes})
+            return _text(f"no changes of kind {kind!r}"
+                         + (f" in category {category!r}" if category else "")
+                         + f"; kinds in this run: {', '.join(kinds)}", is_error=True)
+        page = matches[offset:offset + 200]
+        lines = [f"{len(matches)} change(s) of kind {kind!r}"
+                 + (f" in {category}" if category else "")
+                 + (f", showing {offset}-{offset + len(page)}" if len(matches) > 200 else "")]
+        lines += [_slug(c.url) for c in page]
+        if offset + len(page) < len(matches):
+            lines.append(f"…call again with offset={offset + len(page)} for the rest")
+        return _text("\n".join(lines))
 
     async def record_finding(args: dict) -> dict:
         ctx.calls["record calls"] += 1
@@ -194,15 +222,15 @@ def make_handlers(ctx: DigestContext) -> dict[str, Any]:
         return _text(note)
 
     return {"get_diff": get_diff, "read_page": read_page,
-            "inbound_links": inbound_links, "record_finding": record_finding,
-            "record_findings": record_findings}
+            "inbound_links": inbound_links, "list_changes": list_changes,
+            "record_finding": record_finding, "record_findings": record_findings}
 
 
 SERVER_NAME = "digest"
 
 # Fully qualified names, as the model sees them.
 ALLOWED = [f"mcp__{SERVER_NAME}__{name}"
-           for name in ("get_diff", "read_page", "inbound_links",
+           for name in ("get_diff", "read_page", "inbound_links", "list_changes",
                         "record_finding", "record_findings")]
 
 
@@ -221,6 +249,14 @@ def build_server(ctx: DigestContext):
              "alone does not give.", {"url": str}, annotations=read_only)(handlers["read_page"]),
         tool("inbound_links", "How many corpus pages link to this one — a proxy for how "
              "much depends on it.", {"url": str}, annotations=read_only)(handlers["inbound_links"]),
+        tool("list_changes", "Every change of one kind (moved, metadata, modified, added, "
+             "removed), optionally narrowed by category — use it to enumerate a grouped "
+             "line in full. Paginates by `offset` past 200.",
+             {"type": "object",
+              "properties": {"kind": {"type": "string"},
+                             "category": {"type": "string"},
+                             "offset": {"type": "integer"}},
+              "required": ["kind"]}, annotations=read_only)(handlers["list_changes"]),
         tool("record_finding",
              "Record one finding. A finding is a STORY, not a page: if ten pages changed "
              "for the same reason, record one finding citing all ten. `urls` is a list of "
