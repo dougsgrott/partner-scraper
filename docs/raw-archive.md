@@ -22,10 +22,16 @@ raw-archive/
 uv run python scripts/fetch.py --refresh              # archives automatically
 uv run python scripts/fetch.py --archive-now          # capture raw/ without fetching
 uv run python scripts/fetch.py --refresh --no-archive # opt out, deliberately
+uv run python scripts/changes.py run --fetch          # also archives (--no-archive to opt out)
 ```
 
-**Archiving is on by default.** An opt-in archive is one forgotten flag away from a lost
-generation, and nothing can recover it: the next fetch has already overwritten the bytes.
+**Archiving is on by default, on every fetch path.** An opt-in archive is one forgotten
+flag away from a lost generation, and nothing can recover it: the next fetch has already
+overwritten the bytes. Since 2026-09-19 (issue/accuracy/09) the decision lives in one
+place — `generations.archive_after` — and both entry points route through it, so a run
+is archived exactly when it fetched something and was not a dry run, whichever script
+started it. A future caller of `run_fetch` should call `archive_after` next rather than
+re-deciding.
 
 ## Why hard links, and why that is safe
 
@@ -126,6 +132,15 @@ quiet week either — the new pages include `models/fable-5-1/migration-guide` a
 (block rounding on small files), 217 MB for all three, so **~3.7 GB/year** weekly. The
 Windows host had **43 GB** free on 2026-09-18, down from ~55 GB on 2026-09-09. This archive
 grew by ~72 MB in that time, so the rest of that drop came from elsewhere on the machine.
+
+> **Since 2026-09-19** the normalisations are named, tested patterns in
+> `src/scraper/fetch/noise.py`, and the churn study below reruns with
+> `scripts/measure.py raw-churn GEN1 GEN2` (issue/accuracy/10). The instrument
+> reproduced every figure on this page; refinements are recorded in the issue file.
+> A *new* pattern no longer waits for an event: every fetched run churns its
+> generation pair and alarms when unknown noise exceeds 20% of survivors, and
+> `scripts/measure.py residue` names the shared byte shape (issue/accuracy/11 — it
+> re-derived both patterns below blind).
 
 The 2026-09-09 normaliser (asset hashes + CSS-module suffixes) collapsed **188 of 5,835**
 Databricks pages this time, against 80% before. The cause: Databricks re-dated almost every

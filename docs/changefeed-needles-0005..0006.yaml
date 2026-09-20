@@ -4,6 +4,11 @@
 # diffs (2026-09-18), before being written down. `rank` is the change's position among
 # the 986 modifications of this run ordered by severity, descending.
 #
+# A rank is only meaningful +/- its exact-severity tie block (issue/accuracy/08): the
+# feed's order within a block is the (company, url) tiebreak, and blocks are wide —
+# service-tiers's recorded 53 and a recomputation's 40 are the same sev-4.0 block
+# (ranks 39-57). Ranks here are stable identifiers for `--rank`; do not "correct" them.
+#
 # Run with:
 #   uv run python scripts/probe_recall.py --needles docs/changefeed-needles-0005..0006.yaml --dry-run
 #

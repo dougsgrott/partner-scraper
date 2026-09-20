@@ -1,0 +1,128 @@
+# Verdict worksheet — findings from #6 -> #7, prompt v2: the n=18 SEEDED DRAW,
+# full-page (issue/accuracy/13 — the baseline this pair never had). Graded
+# 2026-09-19 against the stored blobs. Supersedes the mixed-method impression:
+# the earlier 1-of-4 full-page subset was suspicion-selected; the honest rate is
+# 15/3/0. All three partlys fall in the two known classes (invented contrast x2,
+# false newness x1 — Grok again). Findings 253/240/237 re-affirm their earlier
+# full-page verdicts.
+pair: {before: 6, after: 7}
+prompt_version: "2"
+selection: draw
+seed: 1
+requested: 18
+graded_at: "2026-09-19"
+source: graded against stored blobs, session of 2026-09-19
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 33, drawn: 8, weight: 4.125}
+  behavioural: {population: 31, drawn: 7, weight: 4.4286}
+  breaking: {population: 5, drawn: 1, weight: 5.0}
+  editorial: {population: 10, drawn: 2, weight: 5.0}
+verdicts:
+  - id: 289
+    impact: breaking
+    summary: "Connecting directly to a Lakehouse//RT warehouse from the Power BI service is no longer supported; the docs now tell you to connect through an on-premises data "
+    verdict: "true"
+    method: "full-page"
+    notes: "The + line states the withdrawal verbatim; the adbc page's - lines carried the previous positive connection steps, matching the detail's past-claim."
+  - id: 277
+    impact: behavioural
+    summary: "Databricks Apps is now turned on by default for workspaces with the compliance security profile enabled, in all regions where the selected standard is available"
+    verdict: "true"
+    method: "full-page"
+    notes: "The -/+ pair verified; the detail's past-claim matches the security-profile page's removed admin-must-enable note."
+  - id: 253
+    impact: behavioural
+    summary: "Creating, modifying or dropping an ABAC GRANT policy or DENY policy (Beta) with SQL requires Databricks Runtime 18 LTS or above."
+    verdict: "partly"
+    method: "full-page"
+    notes: "Re-affirmed from the first grading: presents the pre-existing DBR 18 LTS requirement as the change; only DENY was added to the sentence."
+  - id: 240
+    impact: behavioural
+    summary: "Kimi K2.7 now has a published pay-per-token retirement date of October 30, 2026, with Kimi K3 named as the replacement."
+    verdict: "true"
+    method: "full-page"
+    notes: "Re-affirmed: Kimi retirement date and replacement new in the after text."
+  - id: 237
+    impact: behavioural
+    summary: "Token counting now documents that it returns an `invalid_request_error` for a few inputs the Messages API accepts, including server tools."
+    verdict: "partly"
+    method: "full-page"
+    notes: "Re-affirmed: the invalid_request_error documentation is real; 'previously framed as a support note' is invented."
+  - id: 241
+    impact: behavioural
+    summary: "AI Runtime tutorials now tell you to select the AI v6 environment instead of AI v5, and the Serverless GPU Python API included in the GPU environment moves from"
+    verdict: "true"
+    method: "full-page"
+    notes: "The AI v5 -> v6 switch verified verbatim across the tutorial pages; version bump consistent."
+  - id: 259
+    impact: behavioural
+    summary: "The SharePoint connector docs now list Microsoft 365 national cloud deployments as unsupported and state that ingesting SharePoint list attachments is not suppo"
+    verdict: "true"
+    method: "full-page"
+    notes: "The national-cloud unsupported list verbatim on the + side."
+  - id: 247
+    impact: behavioural
+    summary: "Sharing and reading foreign schemas, foreign tables and foreign Iceberg tables with OpenSharing is now generally available."
+    verdict: "true"
+    method: "full-page"
+    notes: "GA release notes verbatim; correctly not labelled breaking."
+  - id: 238
+    impact: additive
+    summary: "The Opus 5 migration guide now lists Claude Platform on AWS among the surfaces where the 1M context window is the default and the context-window beta header sho"
+    verdict: "true"
+    method: "full-page"
+    notes: "The -/+ list pair verified; the detail's 'previously named ... only' matches the removed line exactly."
+  - id: 267
+    impact: additive
+    summary: "Lakehouse Federation adds a page for running federated Amazon Redshift queries with AWS IAM authentication."
+    verdict: "true"
+    method: "full-page"
+    notes: "Added page."
+  - id: 245
+    impact: additive
+    summary: "Genie Agents now support up to 50 tables, views or metric views (was 30) and a 200,000 conversation limit (was 10,000)."
+    verdict: "true"
+    method: "full-page"
+    notes: "All three numbers verified verbatim — including the past-claim: the before text says 'up to 10,000 conversations', so '(was 10,000)' is right. Graded with suspicion and vindicated."
+  - id: 281
+    impact: additive
+    summary: "A new Genie consumption guide covers planning enterprise spend: running a usage discovery period, defining persona tiers and setting budgets."
+    verdict: "true"
+    method: "full-page"
+    notes: "Added page plus verbatim links."
+  - id: 264
+    impact: additive
+    summary: "Continuous Spark Declarative Pipelines can now be given a maintenance window so platform-initiated updates and restarts happen at a predictable time, with maint"
+    verdict: "true"
+    method: "full-page"
+    notes: "Added page plus verbatim cross-reference."
+  - id: 230
+    impact: additive
+    summary: "A new commerce agents use-case guide covers building shopping and merchant agents with Claude for commerce, with implementations on the Messages API, the Agent "
+    verdict: "true"
+    method: "full-page"
+    notes: "Added guide plus overview link."
+  - id: 228
+    impact: additive
+    summary: "Compliance session objects now carry a truncation flag that is true when a session has more than 100,000 inference calls, in which case the messages endpoint re"
+    verdict: "true"
+    method: "full-page"
+    notes: "The truncation-flag description verbatim across the six endpoint pages."
+  - id: 239
+    impact: additive
+    summary: "DeepSeek V4.1 Flash and Grok 4.6 now appear across the Databricks Foundation Model API docs, including region availability (`databricks-grok-4-6` in us-west-2),"
+    verdict: "partly"
+    method: "full-page"
+    notes: "The DeepSeek half is genuinely new and well-detailed. The Grok half — 'Grok 4.6 now appear across the docs' — presents a model present since before #5 as newly appearing; grok-4-6 is in the BEFORE text of the cited pages. The founding false-newness cluster, on a fresh pair."
+  - id: 234
+    impact: editorial
+    summary: "Java cloud-backend artifacts in the docs move from 2.60.0 to 2.63.0, and the Java SDK page now describes the platform artifacts as add-ons to the base `com.anth"
+    verdict: "true"
+    method: "full-page"
+    notes: "Version bumps verified verbatim."
+  - id: 224
+    impact: editorial
+    summary: "The API reference was regenerated: anonymous `object` unions are replaced by named schema types, example headers and timestamps were normalised, and the beta-he"
+    verdict: "true"
+    method: "full-page"
+    notes: "The regeneration story matches the - lines (anonymous unions) and rule 9's one-finding form."

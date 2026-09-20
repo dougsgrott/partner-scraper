@@ -79,13 +79,16 @@ def main() -> None:
     )
     print(summary.render())
 
-    if args.dry_run or args.no_archive:
-        return
-    if not summary.ok:
-        print("\n  nothing fetched — no generation archived")
+    if args.no_archive:
         return
 
-    generation = generations.archive(label=args.label, run=summary.started_at)
+    # The decision itself lives in `generations.archive_after`, shared with
+    # `changes.py run --fetch` (issue/accuracy/09) — this is wiring, not policy.
+    generation = generations.archive_after(summary, label=args.label)
+    if generation is None:
+        if not args.dry_run:
+            print("\n  nothing fetched — no generation archived")
+        return
     print(f"\narchived generation {generation.label}")
     print(generation.render())
 

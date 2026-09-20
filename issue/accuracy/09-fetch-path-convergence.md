@@ -1,6 +1,8 @@
 # 09 — One fetch path, always archived
 
-**Status:** open (2026-09-18) · **Kind:** code · **Effort:** ~1 h
+**Status:** done (2026-09-19), uncommitted — **option A with the decision extracted**:
+both entry points route through `generations.archive_after`, tested per entry point.
+See *Done* · **Kind:** code · **Effort:** ~1 h
 **Depends on:** nothing · **Blocks:** nothing — but see urgency below
 
 ## Problem
@@ -21,6 +23,9 @@ choosing option A over the cheaper scheme. Every other issue in this set can wai
 window; this one loses data per occurrence. Nothing to measure, either — the standing
 measure-first rule applies to design choices that hinge on a number, and this hinges on
 none.
+
+**Timing (2026-09-19):** the cadence is weekly and the last archived generation is
+`20260918T184955` — the next refresh is due within days. Land this before it runs.
 
 ## Options
 
@@ -50,17 +55,54 @@ safe behaviour is a matter of which script someone typed. Leaning A with the sha
 logic extracted — C is cleaner but reaches into documented workflow for a convenience
 question the owner may want to keep.
 
+## Done (2026-09-19)
+
+**Option A, with the con answered by extraction.** The "does this run get archived?"
+decision is now `generations.archive_after(summary, *, label, raw_dir, archive_dir)`:
+archive unless the run was dry or wrote nothing (`ok == 0` — an all-304 refresh or an
+all-error run leaves `raw/` exactly as the last generation saw it, so there is nothing
+new to lose). Both callers delegate:
+
+- `scripts/fetch.py` — behaviour unchanged, wiring only: `--no-archive` early-exits,
+  everything else goes through `archive_after`; the "nothing fetched — no generation
+  archived" message and the dry-run silence are preserved.
+- `changes.py run --fetch` — the trap closed: `cmd_run`'s fetch step is now
+  `_fetch_and_archive`, which runs the refresh and archives through the same policy;
+  `run` grew `--no-archive` for the explicit opt-out. The docstring of `archive_after`
+  tells a third caller to call it next rather than re-decide — the layering of option
+  B's choke point, without putting retention policy inside the fetch layer.
+
+**One deviation from the sketch:** `run` did not get a generation `--label`. `run
+--label` already names the *snapshot*, and one flag naming two different objects on one
+command is a worse trap than the one being fixed; the generation takes the timestamp
+default, and `fetch.py` remains the tool for deliberately-labelled generations.
+
+Docs: `docs/raw-archive.md` usage now shows both commands and names the shared
+decision; the trap note in `docs/session-2026-09-18-lessons.md` §2 is marked closed
+with the converged behaviour (and the open-items line annotated), rather than deleted —
+it is a session record.
+
+Tests (`tests/test_fetch_entrypoints.py`): the policy against real tmp directories
+(success ⇒ generation with manifest and the run stamp; dry run ⇒ nothing; `ok == 0` ⇒
+nothing), then each entry point's wiring with `run_fetch` stubbed — `_fetch_and_archive`
+archives by default and honours `archive=False`; `scripts/fetch.py` (loaded by file
+path; `scripts/` is not importable) archives by default and honours `--no-archive`.
+The existing `test_generations.py` suite is untouched and green.
+
 ## Acceptance criteria
 
-- [ ] It is impossible to fetch through any in-repo entry point without archiving, other
-      than by passing an explicit `--no-archive`
-- [ ] The trap note in `docs/session-2026-09-18-lessons.md` §2 and the workflow note in
+- [x] It is impossible to fetch through any in-repo entry point without archiving, other
+      than by passing an explicit `--no-archive` — both entry points (the only
+      `run_fetch` callers outside tests) route through `archive_after`
+- [x] The trap note in `docs/session-2026-09-18-lessons.md` §2 and the workflow note in
       `docs/raw-archive.md` updated to describe the converged behaviour
-- [ ] A test per surviving entry point: successful fetch ⇒ a new generation exists with
+- [x] A test per surviving entry point: successful fetch ⇒ a new generation exists with
       a manifest; `--no-archive` ⇒ it does not
 
 ## Tests
 
-- `changes.py run --fetch` (if it survives) leaves a generation in `raw-archive/`
-- a dry run archives nothing
-- a failed fetch archives nothing (the existing `fetch.py` semantics, preserved)
+- `changes.py run --fetch` (if it survives) leaves a generation in `raw-archive/` —
+  `test_changes_run_fetch_archives`
+- a dry run archives nothing — `test_a_dry_run_archives_nothing`
+- a failed fetch archives nothing (the existing `fetch.py` semantics, preserved) —
+  `test_a_fetch_that_wrote_nothing_archives_nothing`

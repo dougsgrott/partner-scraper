@@ -1,0 +1,82 @@
+# Verdict worksheet — findings from #5 -> #6, prompt v2+r+e (ISSUE 07 SLOTS ARM:
+# boost + adaptive excerpt slots, up to four on restriction-heavy pages).
+# Seeded draw, graded full-page against the stored blobs on 2026-09-19.
+# PRIMARY ENDPOINT (outside the draw, recorded here): NOT delivered — the Fable 5
+# clause was ON SCREEN (third slot) and finding 684's detail wrote 'customers who
+# opt out of data retention cannot use Claude Fable 5.1 (as already stated for
+# Fable 5)' — the invented past, third independent reproduction, now WITHOUT any
+# injection. Showing the line is not enough; see the marking arm's worksheet for
+# the counter-case. E did avoid the GLM false newness in 684's summary.
+pair: {before: 5, after: 6}
+prompt_version: "2+r+e"
+selection: draw
+seed: 1
+requested: 10
+graded_at: "2026-09-19"
+source: graded against stored blobs, session of 2026-09-19
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 44, drawn: 5, weight: 8.8}
+  behavioural: {population: 26, drawn: 3, weight: 8.6667}
+  breaking: {population: 7, drawn: 1, weight: 7.0}
+  editorial: {population: 15, drawn: 1, weight: 15.0}
+verdicts:
+  - id: 642
+    impact: breaking
+    summary: "Web fetch's URL-source rules are restated: a URL that appears only in the system prompt is not fetchable (include it in a user message), and results from other "
+    verdict: "true"
+    method: "full-page"
+    notes: "The -/+ rule change verified; the detail's past-claim matches the old line; 'restated' framing honest; breaking defensible as a newly documented restriction (matches arm R's web-fetch call)."
+  - id: 715
+    impact: behavioural
+    summary: "External-access Spark examples change `spark.sql.catalog.spark_catalog` from `io.unitycatalog.spark.UCSingleCatalog` to `org.apache.spark.sql.delta.catalog.Delt"
+    verdict: "true"
+    method: "full-page"
+    notes: "Verbatim -/+ config swap on both cited pages, correct direction."
+  - id: 713
+    impact: behavioural
+    summary: "Predictive optimization now states it retains data files for a minimum of 7 days even when `delta.deletedFileRetentionDuration` is set lower."
+    verdict: "true"
+    method: "full-page"
+    notes: "Same page as v2's 214, and the framing fixes 214's flaw: 'now states it retains' documents, where 214's 'no longer shortens' invented a prior behaviour. Graded true where 214 was partly."
+  - id: 711
+    impact: behavioural
+    summary: "The deprecation of the `limit`, `offset`, `total_count` and `next_page` fields in `/api/2.1/clusters/events` moves from October 20, 2026 to November 30, 2026."
+    verdict: "true"
+    method: "full-page"
+    notes: "Same story as arm P's 620, verified verbatim."
+  - id: 677
+    impact: additive
+    summary: "Unity Catalog adds ABAC DENY policies (Beta), which explicitly deny `MANAGE ACCESS CONTROL` on securables by governed tag and take precedence over grants."
+    verdict: "true"
+    method: "full-page"
+    notes: "Same story as arm P's 607: the deny-policies page added this pair, wording verbatim."
+  - id: 709
+    impact: additive
+    summary: "A new top-level `ray_init()` (drop-in for `ray.init()`) enables the Ray dashboard on serverless GPU compute and requires environment version 5 or later; a new R"
+    verdict: "true"
+    method: "full-page"
+    notes: "ray_init + lines verbatim; environment-version condition consistent with the page. v1's grab-bag 147 finally as a clean single story."
+  - id: 644
+    impact: additive
+    summary: "Fable 5.1 and Mythos 5.1 are added to feature support lists: structured outputs, the browser use tool, task budgets (beta header `task-budgets-2026-03-13`) and "
+    verdict: "true"
+    method: "full-page"
+    notes: "Core verified (v1 119's matrices story); the audit's task-budgets flag is a context FP — the finding adds 5.1 to the list behind the existing header, not the header."
+  - id: 678
+    impact: additive
+    summary: "You can now govern access to models and AI services in `system.ai` with ABAC GRANT policies, using a new `ai.*` family of system governed tags that Databricks a"
+    verdict: "true"
+    method: "full-page"
+    notes: "Added page plus the governed-tags ai.* + line verbatim."
+  - id: 643
+    impact: additive
+    summary: "On the Claude API, image, video and audio files Claude produces in the code execution sandbox now carry C2PA Content Credentials when downloaded through the Fil"
+    verdict: "true"
+    method: "full-page"
+    notes: "C2PA lines verbatim, including the size/checksum caveat."
+  - id: 675
+    impact: editorial
+    summary: "\"Databricks Data Intelligence Platform\" becomes \"Databricks Data + AI Platform\" (and \"Lakehouse Platform\" becomes \"Data + AI Platform\") across architecture, mig"
+    verdict: "true"
+    method: "full-page"
+    notes: "Same rename story as v2's 181, verified verbatim."

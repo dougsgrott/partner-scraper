@@ -1,8 +1,14 @@
 # 12 — Corpus paths keyed on a vendor-controlled date
 
-**Status:** open (2026-09-18) · **Kind:** decision (option C is small code)
-**Effort:** C ~2 h; A is the largest item in this set
-**Depends on:** an inventory (below) before the big option · **Blocks:** nothing
+**Status:** done (2026-09-19), uncommitted — **C shipped, then A adopted by the owner
+and executed the same day**: C is verified against the stored re-date (4,805 `moved` →
+0, all `metadata`, CLASSIFY_VERSION 3); A flattened the corpus to
+`data/<company>/<category>/<slug>.md` via `extract --force --prune` (6,771 moved, 0
+content changes, snapshot #8, diff #7→#8 fully `pipeline`-attributed — see
+`docs/layout-migration-plan.md`). See *Done*, *Inventory*, *The A decision* ·
+**Kind:** decision (option C is small code)
+**Effort:** C ~2 h; A re-sized below · **Depends on:** the inventory (done) ·
+**Blocks:** nothing
 
 ## Problem
 
@@ -59,23 +65,93 @@ costs one grouped line instead of 5,000.
 
 **D — C now, A later.** C's classifier stays correct during and after any migration.
 
-## The number to get first
+## Done (2026-09-19): option C
 
-**The consumer inventory, before A is even sized:** everything that parses, stores, or
-globs a `data/` path — index, snapshot columns, graph build, validation, coverage,
-scripts. A grep-and-read, an afternoon, and it converts A from "the largest item" to a
-known list of touch points. Second: how often the vendor re-dates without content —
-one event observed so far; a second occurrence inside a few months is itself the
-strongest argument for A. [10](10-standing-instruments.md)'s instruments will show it
-when it happens.
+`diff._date_only_move`: two corpus paths that agree everywhere except the layout's
+date segment (`YYYY-MM` or `undated` on both sides, same file name, same tree above).
+A same-body change matching it falls through to the metadata classification — its
+cause is the `updated_date` edit itself, so it is filed with the field change that
+produced it, keeping the title-weight rule (`SUBSTANTIVE` on retitle) intact. `moved`
+is now reserved for a page whose place in the tree genuinely changed (category or
+slug), which the pre-existing filing-change test still asserts.
+
+**Verified against both stored pairs, re-diffed in memory** (the committed reports
+were left untouched — they are v2-classifier artifacts):
+
+| pair | before | after |
+|---|---|---|
+| #6 → #7 (the re-date) | 4,805 moved · 229 metadata | **0 moved · 5,034 metadata**, all weight `low` |
+| #5 → #6 | 12 moved · 5 metadata | 0 moved · 17 metadata — the 12 were ordinary single-page re-dates, correctly absorbed |
+
+`CLASSIFY_VERSION` bumped 2 → 3 (kind labels in the prompt and the summary table
+change on re-date windows, so historic reports will not re-render byte-identically on
+such pairs; the version comment records this). `TERSE_KINDS` already treats `moved`
+and `metadata` alike, so [06](06-prompt-size.md)'s collapse arm is unaffected. Tests:
+the real re-date paths verbatim (positive, `undated`, category-change, rename, and a
+non-date segment as negatives) plus a corpus-level test that a vendor re-date is
+`metadata`, not `moved`.
+
+`docs/changefeed.md`'s proxy caveat now points here, with the standing advice: treat
+`updated_date` volume as vendor-fragile; use content-attributed counts.
+
+## Inventory (2026-09-19): every consumer of a `data/` path
+
+Grep-and-read of `file_path` / `data/` across `src` and `scripts`. The decisive
+finding: **most consumers walk the tree (`rglob("*.md")`) and never parse the path**,
+so option A leaves them untouched.
+
+- **Path shape is defined in exactly one place:** `store/layout.py`
+  (`data/{company}/{category}/{YYYY-MM}/{slug}.md`). `store/writer.py` writes what
+  layout says. A is an edit to one function plus migration.
+- **Layout-agnostic (unaffected by A):** `validate/fidelity`, `validate/invariants`,
+  `corpusgraph/edges` + `taxonomy` (walk `data/`), `store/index.rebuild`/`orphans`,
+  `scripts/sample_review`, `scripts/validate_retrieval`.
+- **Literal-path holders:**
+  - `state/index.db` `pages.file_path` — **rebuildable from `data/` by design**; one
+    rebuild after the move.
+  - `state/graph.db` — derived; `graph build` rebuilds it in ~15 s.
+  - `state/changes.db` `page_versions.file_path` — **not rebuildable**; historic rows
+    keep old paths forever. The first post-migration diff would show every page as a
+    real `moved` (a *removed* segment changes path length, so `_date_only_move`
+    correctly does not absorb it) — migration day needs a companion: either a one-off
+    classifier allowance for "date segment removed", or accepting one loud, final,
+    honestly-labelled mass-move report.
+  - `scraper/extract` stale-copy pruning reads the index's previous `file_path` —
+    already move-aware (it exists to clean up relocations).
+  - `changefeed/report.py` prints moved paths (display only);
+    `digest/tools.get_source` reads current records only.
+
+**Re-sized: A is an afternoon** — one layout function, an `extract --force`-style
+rewrite pass (or a scripted `mv`), an index rebuild, a graph rebuild, and the
+migration-day diff decision. Not "the largest item in this set" once the inventory
+exists; the README's dependency note said exactly this would happen.
+
+## The A decision — decided by the owner, 2026-09-19
+
+- [x] **Adopted.** Doug: early stage, migrations are not a concern on the assumption
+      they bear fruit soon; browse-by-month is not necessary — some temporal browsing
+      is useful, and the frontmatter dates provide it. (They do: `updated_date`/
+      `published_date` round-trip through the frontmatter and sit as `index.db`
+      columns; only the *path* stopped carrying them.)
+
+Executed immediately — plan and full run record in `docs/layout-migration-plan.md`:
+`layout.path_for` dropped the segment (`date_bucket` deleted with it, no callers
+left); the migration ran through the pipeline (`extract --force --prune`: 6,771
+written, 6,771 stale dated copies removed, 0 errors; one `gone`-page straggler moved
+by hand); graph rebuilt; validation 0 failed; snapshot #8 `layout-flattened`; the
+#7 → #8 diff reads **6,771 moved, all "our own churn", feed empty** — the companion
+classifier rule (`_date_segment_dropped` → `moved`/`pipeline`, inside
+CLASSIFY_VERSION 3) attributed the whole event to us and kept it out of the digest.
+The recommendation to wait for a second re-date was overruled by the owner's
+early-stage argument, which is the stronger one at this maturity.
 
 ## Acceptance criteria
 
-- [ ] The consumer inventory recorded here
-- [ ] C implemented and tested against the stored re-date pair: the 4,805 date-only
+- [x] The consumer inventory recorded here
+- [x] C implemented and tested against the stored re-date pair: the 4,805 date-only
       moves classify as `metadata` when re-diffed
-- [ ] A decided — adopted with a migration plan in `docs/`, or explicitly declined with
-      the browse-by-month value named as the reason — after the inventory and, ideally,
-      a second observed re-date event
-- [ ] `docs/changefeed.md`'s `updated_date`-proxy caveat updated to point at whatever
+- [x] A decided — **adopted** with the migration plan in
+      `docs/layout-migration-plan.md`, and executed: the tree is flat, identity is
+      date-free, and the migration diff is `pipeline`-attributed
+- [x] `docs/changefeed.md`'s `updated_date`-proxy caveat updated to point at whatever
       this issue concludes

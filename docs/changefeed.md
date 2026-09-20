@@ -268,6 +268,17 @@ hand-written count (~79/week) is the steady-state figure issue 04 asked for, and
 before. **The `updated_date` proxy validated above is broken by this event.** It stamped
 5,034 pages whose content did not change.
 
+> **Since 2026-09-19 (issue/accuracy/12, CLASSIFY_VERSION 3):** a same-body move whose
+> paths differ only in the date segment classifies as `metadata`, not `moved` — re-diffed,
+> this pair reads 0 moved / 5,034 metadata, and a future re-date costs grouped metadata
+> lines instead of a mass-move flood. The layout itself no longer keys on
+> `updated_date` at all — option A was adopted by the owner and executed the same day
+> (`data/<company>/<category>/<slug>.md`; snapshot #8 `layout-flattened`;
+> `docs/layout-migration-plan.md`), so a re-date now changes one frontmatter line and
+> nothing else. The proxy stays broken as a *volume* signal: treat `updated_date`
+> volume as vendor-fragile, and use the change feed's content-attributed counts
+> instead.
+
 ### Why this is written down rather than re-derivable
 
 **The tool no longer reports these numbers.** Of the 1,116 modifications, 594 are

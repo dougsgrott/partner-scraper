@@ -1,0 +1,75 @@
+# Verdict worksheet — findings from #5 -> #6, prompt v2+r+p (ISSUE 07 MARKING ARM:
+# boost + `~` revision tags in excerpts and unaligned diffs, with the rule-10 legend).
+# Seeded draw, graded full-page against the stored blobs on 2026-09-19.
+# PRIMARY ENDPOINT (outside the draw, recorded here): finding 615 IS the type
+# specimen — 'Claude Fable 5 on Databricks now carries the added condition that
+# customers who opt out of data retention cannot use it' [breaking], detail stating
+# 'previously did not include the sentence' with the clause quoted verbatim. The
+# finding no previous run ever wrote, with the past-claim in the RIGHT direction.
+pair: {before: 5, after: 6}
+prompt_version: "2+r+p"
+selection: draw
+seed: 1
+requested: 10
+graded_at: "2026-09-19"
+source: graded against stored blobs, session of 2026-09-19
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 28, drawn: 4, weight: 7.0}
+  behavioural: {population: 20, drawn: 3, weight: 6.6667}
+  breaking: {population: 7, drawn: 1, weight: 7.0}
+  editorial: {population: 8, drawn: 1, weight: 8.0}
+verdicts:
+  - id: 593
+    impact: breaking
+    summary: "C# workload-identity-federation samples replace `new AnthropicOidcClient(credentials)` with `new AnthropicClient(new ClientOptions { Credentials = credentials }"
+    verdict: "partly"
+    method: "full-page"
+    notes: "The sample swap verified verbatim across the WIF pages — but `breaking` is wrong: a documentation sample changed; nothing that worked stops working (same over-label class as the combined arm's C# finding)."
+  - id: 620
+    impact: behavioural
+    summary: "The deprecation of the `limit`, `offset`, `total_count` and `next_page` fields in `/api/2.1/clusters/events` moves from October 20, 2026 to November 30, 2026."
+    verdict: "true"
+    method: "full-page"
+    notes: "The date slip verified verbatim on the -/+ pair, direction correct."
+  - id: 596
+    impact: behavioural
+    summary: "A new `ant apply` declarative workflow replaces the `ant beta:environments create < file.yaml` / `ant beta:agents create < file.yaml` form throughout the manage"
+    verdict: "true"
+    method: "full-page"
+    notes: "Same story as arm Q's 448 / v2's 168, graded true full-page."
+  - id: 634
+    impact: behavioural
+    summary: "Feature Store now documents an enforced lower bound: `window_duration` must be greater than two days, with `RollingWindow` recommended for shorter windows, and "
+    verdict: "true"
+    method: "full-page"
+    notes: "The old '> 0' bound on the - side, the two-day bound new in the after text; correctly framed as a documented constraint."
+  - id: 607
+    impact: additive
+    summary: "Unity Catalog gains ABAC DENY policies (Beta), which explicitly deny `MANAGE ACCESS CONTROL` on securables by governed tag and take precedence over grants."
+    verdict: "true"
+    method: "full-page"
+    notes: "The deny-policies page is added in this pair; the MANAGE ACCESS CONTROL wording verbatim on the + side."
+  - id: 622
+    impact: additive
+    summary: "Cross-workspace access (Beta) lets you control which source workspaces can reach a workspace over serverless traffic, via ingress policy rules and matching netw"
+    verdict: "true"
+    method: "full-page"
+    notes: "Same story as the combined arm's 557, graded true: added page plus verbatim + lines."
+  - id: 579
+    impact: additive
+    summary: "Claude Fable 5.1 may issue fewer parallel tool calls than earlier models, most noticeably in long agent loops."
+    verdict: "true"
+    method: "full-page"
+    notes: "The exact + line ('may issue fewer parallel tool calls than earlier models, most noticeably in long agent loops') verified in the stored diff."
+  - id: 613
+    impact: additive
+    summary: "Integrated CDC pipelines can now run in continuous (always-on) mode, with a new page covering scale-optimized and speed-optimized run modes; triggered remains t"
+    verdict: "true"
+    method: "full-page"
+    notes: "Same story as arm Q's 472, graded true: restriction lifted with both sides shown."
+  - id: 595
+    impact: editorial
+    summary: "Pinned dependency versions bump: the Java SDK (and anthropic-java-aws) to 2.60.0 from 2.58.0, and the `ant` CLI install snippet to 1.30.0 from 1.27.0."
+    verdict: "true"
+    method: "full-page"
+    notes: "Version bumps verified verbatim on the -/+ pairs."

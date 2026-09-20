@@ -147,3 +147,12 @@ half"). Five tests, including the honest-limits ones. One extractor fix came fro
 failing test rather than the corpus: a sentence-initial article welds onto the name
 ("The Unity Catalog API") and never matches the before text — leading articles are
 stripped from capitalized-run subjects.
+
+## Follow-up (2026-09-19)
+
+A caution for readers of the arm numbers: **coverage (N/117 candidates on cited pages)
+is directional, never a headline metric.** "Cited" means a finding looked at the page —
+the type specimen's citing finding is the one that inverted the rule. The combined arm
+made the point numerically: its coverage fell to 68/117, *below* baseline, while its
+seeded draw graded 100%. Grade clusters carry verdicts; coverage only ranks where to
+look next, which is exactly the job `digest.py absence` keeps.

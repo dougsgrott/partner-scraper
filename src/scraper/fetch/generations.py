@@ -27,8 +27,12 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import rawstore
+
+if TYPE_CHECKING:
+    from .runner import RunSummary
 
 DEFAULT_ARCHIVE_DIR = Path("raw-archive")
 MANIFEST = "manifest.json"
@@ -103,6 +107,31 @@ def archive(
                     "run": generation.run, "source": str(source)}, indent=2),
         encoding="utf-8")
     return generation
+
+
+def archive_after(
+    summary: RunSummary,
+    *,
+    label: str | None = None,
+    raw_dir: str | Path | None = None,
+    archive_dir: str | Path | None = None,
+) -> Generation | None:
+    """Archive what a fetch run left in `raw/` — the shared retention decision.
+
+    Every in-repo entry point that fetches routes its "does this run get archived?"
+    through here (issue/accuracy/09). `scripts/fetch.py` and `changes.py run --fetch`
+    used to answer that question separately — one archived, one silently did not, and
+    a generation nobody archived is unrecoverable once the next refresh overwrites
+    `raw/`. A future caller of `run_fetch` should call this next, not re-decide.
+
+    Returns None — archiving nothing — only when there is nothing new to lose: a dry
+    run touched no bytes, and a run with zero `ok` fetches left `raw/` exactly as the
+    last archived generation saw it (every page answered 304, or every request failed).
+    """
+    if summary.dry_run or not summary.ok:
+        return None
+    return archive(label=label, run=summary.started_at,
+                   raw_dir=raw_dir, archive_dir=archive_dir)
 
 
 def generations(archive_dir: str | Path | None = None) -> list[Generation]:

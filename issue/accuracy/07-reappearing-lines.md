@@ -1,8 +1,27 @@
 # 07 — Mark reappearing lines in diffs and excerpts
 
-**Status:** open (2026-09-18) · **Kind:** code · **Effort:** ~3 h
-**Depends on:** [01](01-verdict-ledger.md) only for the optional graded A/B
-**Blocks:** nothing
+**Status:** done (2026-09-19), uncommitted — built, measured, both arms run and graded,
+**the primary endpoint delivered by the marking arm and the provenance bet answered
+yes**; see *Measured*, *The arms*, and *The bet, answered* below ·
+**Kind:** code + measurement · **Effort:** ~3 h build + two graded arms
+**Depends on:** [01](01-verdict-ledger.md) (the ledger, live); the baseline of
+[13](13-boost-adoption.md) if arms run on #6 → #7 · **Blocks:** nothing
+
+> **Revised after the A/B arms** (`docs/digest-experiments-2026-09-19.md`). The arms
+> elevated this issue — and narrowed what it can claim. The type specimen failed through
+> **two distinct mechanisms**, and marking addresses only the second:
+>
+> 1. **Slot exhaustion** (the boost arm): the Fable 5 line is the page's *third*
+>    restriction line on a two-slot excerpt. Shown clauses became findings — the 5.1
+>    twin did — and unshown ones did not. No marking scheme fixes what is not on
+>    screen; option E below is the companion fix for this path.
+> 2. **Invented past** (both injection arms): the model read the added line and wrote
+>    "already documented for Claude Fable 5" — near-verbatim across two independent
+>    sessions, *after* an appendix stating in words that these were ADDED lines. This
+>    issue's central bet is therefore now explicit and falsifiable: **per-line
+>    provenance carried by the diff itself sticks where instruction-level provenance
+>    demonstrably did not.** A hypothesis to test, not a fix to bank — the A/B design
+>    below is built around it.
 
 ## Problem
 
@@ -49,6 +68,21 @@ stripped) all appear in the before body? Tag "terms present before".
 - *Con:* blunter — fires on reworded prose that is not a revised row; likely noisier
   than A. Worth measuring only if A's pairing proves fiddly.
 
+**E — adaptive excerpt slots (companion arm — not a marking option).** Scale the
+excerpt's line count with the page's RESTRICTION-line count (2 up to 3–4, capped; a few
+hundred prompt tokens per run). Not provenance at all, but the boost arm's own
+mechanics predict it delivers the type specimen: shown clause → written finding held
+for the 5.1 twin, and E puts the Fable 5 clause on screen. **Run it as its own arm,
+never combined with a marking arm** — the combined-arm interference result is the
+standing reason one input change per arm is now a rule.
+
+- *Pro:* the cheapest plausible path to the one finding no arm produced;
+  deterministic; measurable on the stored pair.
+- *Con:* more excerpt tokens on restriction-heavy pages, and it hands the model more
+  lines *without* provenance — if the invented-past mechanism dominates, E alone could
+  reproduce the injection's neutralisation. That is not only a risk but the
+  experiment's value: E-alone vs marking-alone separates the two mechanisms cleanly.
+
 ## The number to get first
 
 On the stored runs: how many shown `-`/`+` pairs exceed candidate thresholds, and a
@@ -56,16 +90,41 @@ hand-read of a sample at each — the over/under-pairing rates. Then the motivat
 the actual Grok table diff from #5 → #6 must produce the tag, and a diff with a
 genuinely new table row must not.
 
+## The A/B design (fixed by the 2026-09-19 arms)
+
+Separate arms on #5 → #6 — marking (A or B) and slots (E) each under their own
+`prompt_version` — graded by the same seeded full-page draw as the four existing arms,
+so the ledger compares them directly. **Primary endpoint: the type specimen produced as
+its own correct finding** — *existing* Fable 5 users who opted out lose the model — the
+finding no run has ever written. Secondary: the standing cluster checks (Grok/GLM,
+`breaking` discipline, needle-page citation) and no draw regression against the boost
+arm's 10/10. If arms run on #6 → #7 instead, [13](13-boost-adoption.md)'s fresh
+baseline grade comes first.
+
 ## Acceptance criteria
 
-- [ ] The real Grok/GLM table diff renders the revised rows as revised — test built from
-      the stored blobs, per the standing rule
-- [ ] A real diff with a genuinely new row shows it untagged
-- [ ] Pairing runs only on rendered lines; `changed_sides` and the ranking path
-      unchanged, and the diff-time cost of a full run's renders stated
-- [ ] Threshold chosen against the measured over/under-pairing rates, recorded here
-- [ ] Optional, once [01](01-verdict-ledger.md) exists: one graded re-run to see whether
-      false-newness claims drop
+- [x] The real Grok/GLM table diff renders the revised rows as revised — the region rows
+      pair at 0.93 against the blobs; tests carry the real Fable retention pair (0.88)
+      and a same-shape row (the 11k-char real rows cannot live in a test file; the
+      full-row verification is in *Measured*)
+- [x] A real diff with a genuinely new row shows it untagged — the real GLM-5.3
+      description scores ≤0.1 and stays a bare `+`
+- [x] Pairing runs only on rendered lines; `changed_sides` and the ranking path
+      unchanged (tested: severity and signals identical under the flag); a full run's
+      shown lines pair in **1.0–1.8 s**
+- [x] Threshold **0.7**, chosen against measurement: true revisions score 0.84–0.97,
+      genuinely new prose ≤0.1, and a read sample of shown lines at ≥0.7 was all
+      genuine revisions (58%/43% of shown lines tag — most shown lines ARE revisions;
+      the signal is the tag's absence). One measured, accepted boundary: a genuinely
+      new line pairs with its TEMPLATE SIBLING (the 5.1 retention line at 0.84 against
+      the old Fable 5 line), which is why the tag claims only "a close variant
+      existed", never "not new". Under-pairing boundary: an appended clause on a SHORT
+      line scores low (0.58 on an abbreviated fixture vs 0.88 on the real line) —
+      score is length-sensitive.
+- [x] Marking (`2+r+p`, $3.39, 63 findings) and slots (`2+r+e`, $3.66, 92 findings)
+      run and graded as separate arms on the boost base, seeded full-page draws,
+      the type specimen the named primary endpoint of each — see *The arms*
+- [x] The provenance bet answered in writing — see *The bet, answered*
 
 ## Tests
 
@@ -73,3 +132,48 @@ genuinely new table row must not.
 - new-row non-pairing on a real diff
 - a moved line (identical text both sides) is already absent from `changed_sides` output
   and stays absent — no regression on the multiset behaviour
+
+
+## The arms (2026-09-19)
+
+| arm | findings | cost | draw grade | specimen | flags |
+|---|---|---|---|---|---|
+| `2+r+p` marking | 63 | $3.39 | 8/1/0 (89%; the partly is a sample-swap labelled `breaking`) | **DELIVERED** — finding 615 | 4 (GLM returned in 614, caught; 2 context FPs; 1 soft-true) |
+| `2+r+e` slots | 92 | $3.66 | 10/10 (100%) | **NOT delivered** — the clause was on screen and 684 neutralised it | 7 (2 misquote catches incl. the recurring "BASIC reports only"; 1 new checker artifact: "X is retitled \"Y\"") |
+
+The marking arm's finding 615 is the finding no previous run ever wrote:
+*"[breaking] Claude Fable 5 on Databricks now carries the added condition that
+customers who opt out of data retention cannot use it"*, detail: *"The 30-day
+trust-and-safety retention callout for Claude Fable 5 **previously did not include
+the sentence** 'Customers who opt out of data retention cannot use Claude Fable 5.'"*
+— the past-claim in the right direction, the clause quoted verbatim. The pathway is
+worth recording: the Fable 5 line was NOT in the marked arm's two-slot excerpt; the
+5.1 sibling was, tagged `~+`, and the legend ("edited, not added — get_diff shows the
+pair") sent the model to the diff, where the aligned view showed the insertion.
+
+The slots arm put the Fable 5 clause itself on screen (third slot) with no
+provenance — and finding 684 wrote *"customers who opt out of data retention cannot
+use Claude Fable 5.1 **(as already stated for Fable 5)**"*. The invented past, third
+independent reproduction (both injection arms, now E), first time with no injection.
+E was otherwise excellent: 10/10 draw, best absence coverage of any arm (98/117),
+92 findings including the cleanest versions yet of several stories, and its models
+finding avoided the GLM false newness in its summary.
+
+## The bet, answered
+
+**Yes: per-line provenance carried by the diff sticks where instruction-level
+provenance did not — and where mere visibility actively misleads.** The evidence now
+spans four arms: shown-without-provenance produced the "already stated/documented"
+neutralisation three times independently (2+inj, combined, 2+r+e); marked provenance
+produced the correct edited-line reading and the specimen finding once (2+r+p). The
+mechanism isolated by E-alone vs P-alone: when the model sees a restriction clause
+about X beside a near-identical clause about X's sibling, it defaults to "the X
+version already existed" unless the input carries evidence otherwise. One trial per
+arm — the standing caveat — but the signature count is 3-for-3 against visibility
+and 0-for-1 against marking. What marking does NOT fix, measured: name-level false
+newness (GLM returned under `2+r+p`; a name existing elsewhere is the corpus question
+issue 03 measured and rejected) and the `breaking` over-label class (the sample-swap
+finding). Adoption question now on the table for [13](13-boost-adoption.md)'s
+process: `+p` beat nothing but its draw is one finding below `+r`'s 10/10 while
+delivering the specimen — a confirming marked run on #6 → #7 rides along with the
+boost confirm if Doug wants both.

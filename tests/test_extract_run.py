@@ -49,6 +49,7 @@ def env(tmp_path):
         "data": tmp_path / "data",
         "fetch_db": tmp_path / "fetch.db",
         "index_db": tmp_path / "index.db",
+        "extracts": tmp_path / "extracts",
     }
 
 
@@ -63,7 +64,8 @@ def archive(env, content: bytes, url: str = URL) -> None:
 
 def extract(env, **kw):
     return run_extract(env["cfg"], fetch_db_path=env["fetch_db"],
-                       index_db_path=env["index_db"], data_dir=env["data"], **kw)
+                       index_db_path=env["index_db"], data_dir=env["data"],
+                       extracts_dir=env["extracts"], **kw)
 
 
 def corpus(env) -> list[str]:
@@ -74,7 +76,7 @@ def test_a_page_is_extracted_and_indexed(env):
     archive(env, page())
     summary = extract(env)
     assert (summary.written, summary.errors, summary.quality_failed) == (1, 0, 0)
-    assert corpus(env) == ["databricks/delta/2026-07/aws-en-delta-tutorial.md"]
+    assert corpus(env) == ["databricks/delta/aws-en-delta-tutorial.md"]
 
     with Index(env["index_db"]) as index:
         assert index.get(URL)["status"] == "ok"
@@ -89,7 +91,7 @@ def test_rerunning_skips_unchanged_pages(env):
 
 def test_forcing_rewrites_nothing_when_nothing_changed(env):
     archive(env, page())
-    path = env["data"] / "databricks/delta/2026-07/aws-en-delta-tutorial.md"
+    path = env["data"] / "databricks/delta/aws-en-delta-tutorial.md"
     extract(env)
     before = path.read_bytes(), path.stat().st_mtime_ns
 
@@ -98,21 +100,40 @@ def test_forcing_rewrites_nothing_when_nothing_changed(env):
     assert (path.read_bytes(), path.stat().st_mtime_ns) == before
 
 
-def test_a_page_that_moves_leaves_no_stale_copy(env):
-    """REGRESSION: the date bucket comes from `updated_date`, so an edited doc changes path.
-
-    Before this, the previous month's file stayed in `data/` forever: unreferenced by the
-    index, invisible in every summary, and indistinguishable from a live page to anything
-    that reads the corpus off disk.
-    """
+def test_a_redate_no_longer_moves_the_file(env):
+    """REGRESSION, inverted by issue/accuracy/12: the path used to carry the date
+    bucket, so a vendor re-date relocated the file. Identity is now date-free."""
     archive(env, page(updated="Jul 10, 2026"))
     extract(env)
 
-    archive(env, page(updated="Aug 3, 2026"))          # the site edited the doc
+    archive(env, page(updated="Aug 3, 2026"))          # the site re-dated the doc
     summary = extract(env)
 
-    assert corpus(env) == ["databricks/delta/2026-08/aws-en-delta-tutorial.md"]
+    assert corpus(env) == ["databricks/delta/aws-en-delta-tutorial.md"]
+    assert summary.moved == 0
+
+
+def test_a_page_that_moves_leaves_no_stale_copy(env):
+    """The 2026-09-19 migration in miniature: the index still points at a dated
+    path (the pre-flattening layout), and a forced re-extract must land the file at
+    its new home and remove the stale dated copy plus the emptied month directory."""
+    import sqlite3
+
+    archive(env, page())
+    extract(env)
+
+    flat = env["data"] / "databricks/delta/aws-en-delta-tutorial.md"
+    dated = env["data"] / "databricks/delta/2026-07/aws-en-delta-tutorial.md"
+    dated.parent.mkdir(parents=True)
+    flat.rename(dated)
+    with sqlite3.connect(env["index_db"]) as conn:
+        conn.execute("UPDATE pages SET file_path = ? WHERE url = ?", (str(dated), URL))
+
+    summary = extract(env, force=True)
+
+    assert corpus(env) == ["databricks/delta/aws-en-delta-tutorial.md"]
     assert summary.moved == 1
+    assert not dated.parent.exists()                    # the month dir is pruned too
     with Index(env["index_db"]) as index:
         assert index.orphans(env["data"]) == []
 

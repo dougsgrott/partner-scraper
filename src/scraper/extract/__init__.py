@@ -28,6 +28,11 @@ from .base import QualityReport, check_quality
 
 logger = logging.getLogger(__name__)
 
+# Extract summaries persist like fetch summaries do (state/runs/) — before 2026-09-19
+# they were printed and lost, which left the cross-check reconciliation of
+# issue/accuracy/10 with nothing to reconcile against after the fact.
+DEFAULT_EXTRACTS_DIR = Path("state/extracts")
+
 __all__ = [
     "ExtractSummary",
     "Extracted",
@@ -70,6 +75,16 @@ class ExtractSummary:
 
     def to_dict(self) -> dict:
         return {**self.__dict__, "processed": self.processed}
+
+    def write(self, extracts_dir: Path | None = None) -> Path:
+        import json
+
+        extracts_dir = Path(extracts_dir or DEFAULT_EXTRACTS_DIR)
+        extracts_dir.mkdir(parents=True, exist_ok=True)
+        stamp = self.started_at.replace(":", "").replace("-", "").replace(".", "")[:15]
+        path = extracts_dir / f"{stamp}.json"
+        path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        return path
 
     def render(self) -> str:
         lines = [
@@ -125,6 +140,7 @@ def run_extract(
     fetch_db_path: Path | None = None,
     index_db_path: Path | None = None,
     data_dir: Path | None = None,
+    extracts_dir: Path | None = None,
 ) -> ExtractSummary:
     """Extract every archived page for the selected sources into the corpus."""
     import time
@@ -272,6 +288,7 @@ def run_extract(
                 logger.info("pruned orphaned corpus file %s", orphan)
 
     summary.elapsed_s = time.monotonic() - started
+    summary.write(extracts_dir)
     return summary
 
 

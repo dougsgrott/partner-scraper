@@ -228,6 +228,7 @@ def audit_finding(finding: Finding, by_url: dict[str, PageChange], *, blob_dir=N
     afters: list[str] = []
     candidates: list[Evidence] = []
 
+    seen_signatures: dict[tuple, str] = {}
     for url in finding.urls:
         change = by_url.get(url)
         if change is None:
@@ -245,6 +246,16 @@ def audit_finding(finding: Finding, by_url: dict[str, PageChange], *, blob_dir=N
         befores.append(before)
         afters.append(after)
         removed, added = classify.changed_sides(before, after)
+        # A mirror pair is one piece of evidence, not two. The Admin API republication
+        # stamped one edit across up to 115 reference pages, and an audit that shows
+        # the same changed lines twice lets one story count as two confirmations.
+        signature = (tuple(sorted(removed)), tuple(sorted(added)))
+        if (removed or added) and signature in seen_signatures:
+            first = seen_signatures[signature].split("/en/")[-1]
+            candidates.append(Evidence(url, change.kind,
+                                       note=f"identical change to {first}"))
+            continue
+        seen_signatures[signature] = url
         ranked = rank_lines([("-", ln) for ln in removed] + [("+", ln) for ln in added], terms)
         candidates.append(Evidence(url, change.kind, lines=ranked[:lines],
                                    score=_score(" ".join(t for _, t in ranked[:lines]), terms)))

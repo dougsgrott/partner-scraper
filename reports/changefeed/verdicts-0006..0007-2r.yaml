@@ -1,0 +1,136 @@
+# SECOND PASS 2026-09-20 (issue/accuracy/13 second-grader box): rows 763, 736, 785
+# re-graded blind (post-compaction, claims re-verified from blobs before reading the
+# recorded verdicts). 763 confirmed partly; 736 and 785 DOWNGRADED true -> partly
+# (delete-endpoint carve-out contradicting the universal 403 claim; pre-existing
+# USE CONNECTION clause folded in unmarked). Arm rate 17/1/0 (94%) -> 15/3/0 (83%).
+# Caveats both ways: these rows were suspicion-selected (worst-first, not a random
+# audit), AND the baseline v2 n=18 pass was not re-graded. Ledger notes carry the
+# full reasoning per row; the sqlite verdicts are canonical.
+# Verdict worksheet — findings from #6 -> #7, prompt v2+r (ISSUE 13 BOOST CONFIRM:
+# the second-pair replication). Seeded draw n=18, graded full-page against the
+# stored blobs on 2026-09-19. Result 17/1/0 (94%) vs the same-pair v2 baseline's
+# 15/4/0 (79%). Watch-item recorded: this run wrote 62 findings (baseline 79) and
+# left the Kimi-retirement and token-counting needle pages uncited — run variance
+# vs mechanism is indistinguishable at n=1; the needle file remains the standing
+# regression check.
+pair: {before: 6, after: 7}
+prompt_version: "2+r"
+selection: draw
+seed: 1
+requested: 18
+graded_at: "2026-09-19"
+source: graded against stored blobs, session of 2026-09-19
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 28, drawn: 8, weight: 3.5}
+  behavioural: {population: 17, drawn: 5, weight: 3.4}
+  breaking: {population: 7, drawn: 2, weight: 3.5}
+  editorial: {population: 10, drawn: 3, weight: 3.3333}
+verdicts:
+  - id: 785   # re-grade 2026-09-20: DOWNGRADED true -> partly (see ledger note)
+    impact: breaking
+    summary: "Materializing features to an online store now requires CAN USE on the Lakebase instance or project backing that store, and a Stream's creator plus anyone materi"
+    verdict: "true"
+    method: "full-page"
+    notes: "The CAN USE requirement verbatim on the + side; a real new permission floor."
+  - id: 755
+    impact: breaking
+    summary: "Lakeflow Declarative Pipelines now state that create_table and CREATE TABLE ... FLOW cannot adopt an existing managed table — the target must be a new managed t"
+    verdict: "true"
+    method: "full-page"
+    notes: "The limitation verbatim on the + side; breaking defensible under rule 5."
+  - id: 780
+    impact: behavioural
+    summary: "Managed-table drop semantics were rewritten: after the recovery window ends an asynchronous purge permanently deletes the files, shallow clones can keep reading"
+    verdict: "true"
+    method: "full-page"
+    notes: "The rewritten drop semantics match the -/+ pairs, purge new on the DDL page."
+  - id: 774
+    impact: behavioural
+    summary: "Private access to account-level resources and workspace private access via context-based ingress are Beta features that must be switched on by name: 'Front-end "
+    verdict: "true"
+    method: "full-page"
+    notes: "The enable-by-name additions verbatim; the past-claim matches the removed lines."
+  - id: 764
+    impact: behavioural
+    summary: "Databricks Runtime 18.1 (and 18.1 ML) and 13.3 LTS (and 13.3 LTS ML) are now marked end-of-support, and their maintenance-update histories moved to the maintena"
+    verdict: "true"
+    method: "full-page"
+    notes: "The (EoS) title pairs verbatim."
+  - id: 758
+    impact: behavioural
+    summary: "The FILE type now requires serverless environment version 6 or above, replacing the earlier statement that it isn't supported on serverless notebooks, and the d"
+    verdict: "true"
+    method: "full-page"
+    notes: "The environment-version-6 requirement verbatim on the + side."
+  - id: 736   # re-grade 2026-09-20: DOWNGRADED true -> partly (see ledger note)
+    impact: behavioural
+    summary: "Compliance API scope failures now return a 403 worded 'Missing required scopes. Got: [...] Needed one of: [...]' instead of 'Needed: [...]'."
+    verdict: "true"
+    method: "full-page"
+    notes: "The 403 wording change verified verbatim on the -/+ pair — a precise API-contract catch."
+  - id: 787
+    impact: additive
+    summary: "A new Beta SQL function ai_transcribe() transcribes an audio file to text, returning time-stamped segments with speaker labels."
+    verdict: "true"
+    method: "full-page"
+    notes: "Added page."
+  - id: 789
+    impact: additive
+    summary: "Sharing foreign schemas and tables with OpenSharing is generally available, and shareable views may now be defined on foreign tables in addition to Delta tables"
+    verdict: "true"
+    method: "full-page"
+    notes: "Same GA story as the baseline's 247, verified against the release notes."
+  - id: 730
+    impact: additive
+    summary: "Tool names may now be up to 128 characters: the documented regex changed from ^[a-zA-Z0-9_-]{1,64}$ to ^[a-zA-Z0-9_-]{1,128}$."
+    verdict: "true"
+    method: "full-page"
+    notes: "The regex 64 -> 128 change verbatim."
+  - id: 771
+    impact: additive
+    summary: "New recipes show how to install MLflow skills for coding agents (Claude Code, Cursor, VS Code, OpenCode) and how to set up the MLflow MCP server so those agents"
+    verdict: "true"
+    method: "full-page"
+    notes: "Added recipe pages."
+  - id: 761
+    impact: additive
+    summary: "DeepSeek V4.1 Flash, a 552B-parameter multimodal mixture-of-experts model with adjustable reasoning effort, is now available in Foundation Model APIs with docum"
+    verdict: "true"
+    method: "full-page"
+    notes: "The DeepSeek section verified genuinely new in the baseline grading; no Grok claim here."
+  - id: 763   # re-grade 2026-09-20: confirmed partly
+    impact: additive
+    summary: "Unity Catalog ABAC adds DENY policies (Beta) and metastore-level policy attachment, so a single row filter, column mask, GRANT or DENY policy can apply across e"
+    verdict: "partly"
+    method: "full-page"
+    notes: "The metastore-level attachment half is true (new page, ON METASTORE). 'Unity Catalog ABAC ADDS DENY policies (Beta)' is false on this pair — the - lines show the DENY page existed in #6. The 252-class plain-noun false newness, recurring under the boost; invisible to the newness check (no digits in 'DENY')."
+  - id: 762
+    impact: additive
+    summary: "The Unity Gateway API for managing model services, model provider services and MCP services is now generally available with create, read, update and delete oper"
+    verdict: "true"
+    method: "full-page"
+    notes: "GA release note verified in the baseline's probe."
+  - id: 742
+    impact: additive
+    summary: "The Files, Skills and Message Batches endpoints now document an optional \"anthropic-workspace-id\" request header."
+    verdict: "true"
+    method: "full-page"
+    notes: "The optional header entries verbatim on the + side across the endpoint pages."
+  - id: 735
+    impact: editorial
+    summary: "The MCP tunnels research-preview access request link changed from claude.com/form/claude-managed-agents to claude.com/form/mcp-tunnels across all nine tunnel pa"
+    verdict: "true"
+    method: "full-page"
+    notes: "The link swap verbatim."
+  - id: 791
+    impact: editorial
+    summary: "The materialized view refresh example now sets SET STATEMENT_TIMEOUT = 21600 (seconds) instead of the string '6h'."
+    verdict: "true"
+    method: "full-page"
+    notes: "The timeout literal swap verbatim."
+  - id: 734
+    impact: editorial
+    summary: "Managed Agents pages replaced the inline beta-header callout with a standard metadata block listing Status: Beta and the beta header (managed-agents-2026-04-01,"
+    verdict: "true"
+    method: "full-page"
+    notes: "The metadata-block presentation change verified; values unchanged as stated."
