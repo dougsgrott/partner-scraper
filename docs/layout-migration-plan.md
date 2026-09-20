@@ -79,3 +79,8 @@ carries as columns.
 - Surprises: only the `gone`-page straggler above, and the forced pass taking ~10
   minutes rather than the module docstring's "seconds" (quality checks over 87 M
   chars).
+
+Snapshot #8 was subsequently declared the **era boundary** — the start of the
+consistent modern regime (flat layout, prompt v3, classifier v3, corrected
+estimator). The comparison rules live in `docs/changefeed.md` § "The era boundary:
+snapshot #8".

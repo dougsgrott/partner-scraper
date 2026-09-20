@@ -1,7 +1,9 @@
 # 06 — The 198k-token prompt: collapse, count, re-probe
 
-**Status:** done except the gated digest A/B (2026-09-19), uncommitted — counted,
-re-probed, collapse and merge built behind flags; see *Measured* and *Done* below. The
+**Status:** done (2026-09-19/20), uncommitted — counted, re-probed, collapse and
+merge built behind flags; the collapse A/B graded 89% at −55% input tokens and
+**adopted as PROMPT_VERSION 4** (see *The collapse A/B*); merge stays a flagged,
+ungraded arm; see *Measured* and *Done* below. The
 headline: **the "198k-token" prompt was really 305k** — the estimator was off by 35% —
 **and recall is intact even there** (locate 3/3), so collapse is a cost fix, not an
 accuracy fix, exactly the branch the plan pre-registered ·
@@ -163,3 +165,24 @@ records; the `list_changes` session tool (kind, optional category, paginated) in
 measurement in its comment; audit mirror-evidence dedup; five new tests. The digest
 A/B for `+c`/`+m` remains the one open box, sequenced after
 [13](13-boost-adoption.md)'s boost confirm so the arms stay attributable.
+
+## The collapse A/B (2026-09-20): graded, and it costs nothing
+
+Run as `3+c` on #6 → #7 in the two-arm campaign ($4.26, 72 findings, shelved via the
+new `--no-replace`; worksheet `verdicts-0006..0007-3c.yaml`). **The first point of the
+volume-recall curve says collapse is free**: input 1,295 records (the 5,034 terse
+lines grouped) at **−55% input tokens and −19% cost**, and the digest got *better*,
+not worse — **16/2/0 = 89% full-page** (the highest graded arm on the pair, at the
+strict post-re-grade standard), 72 findings against the baseline's 79 (no narrowing),
+zero invented-past claims in all 72, and 3 of 4 needles cited. The uncited needle is
+`token-counting` (rank ~638) — the same page the `2+r` confirm missed, now looking
+like a recurring low-rank variance case rather than an arm effect. Bonus datum:
+finding 863 (AWS tier-advancement) is a verbatim-true *past-claim* produced without
+marking — visibility of both diff sides in the excerpt sufficed. Caveats recorded in
+the experiment record's Addendum 4: strict-vs-mixed grading standards across arms,
+and CLASSIFY_VERSION 3 input (moved→metadata relabels) on the new arms only.
+**Adopted 2026-09-20 (Doug's call, same day): PROMPT_VERSION 4 = the v3 prompt text
+plus collapsed terse input as the default.** The adoption comment in `session.py`
+carries the numbers and the exclusions; `--no-collapse-terse` records `-c`, the same
+deviation convention as the boost's `-r`. `merge_duplicates` (`+m`) remains built and
+ungraded.

@@ -283,3 +283,39 @@ six rows were suspicion-selected (worst-first — the downgrades don't extrapola
 to the arm), and the baseline's 19 grades were *not* re-graded (its 79% carries
 the same first-pass leniency risk). The adoption stands on the replicated
 direction and consistent error clusters, not on the headline. Spend: $0.
+
+## Addendum 4 (2026-09-20): the two-arm campaign — collapse graded, marking confirmed against
+
+Run with the new choreography (`digest run --no-replace` shelves an arm at birth;
+`grade --prompt-version` draws from it; `promote` is the explicit current-set
+pointer — the supersede/restore dance and its silent-empty-worksheet race are gone,
+built ~1 h before the first arm fired). Both arms on #6 → #7, seed 1, n=18, graded
+full-page same day at the strict post-re-grade standard.
+
+| arm | $ | findings | full-page | invented-past | needles | notes |
+|---|---|---|---|---|---|---|
+| `3+c` collapse | 4.26 | 72 | **16/2/0 = 89%** | 0/72 | 3/4 | input −55% tokens, cost −19%; highest graded arm on the pair; finding 863 a verbatim-true past-claim without marking |
+| `3+p` marking | 5.23 | 68 | **13/5/0 = 72%** | 0/68 | **4/4** | only arm ever to cite all four needles; findings 800/804 verbatim-verified revision descriptions; all 5 partlys = pre-existing-as-change |
+
+**The two open questions, answered:**
+
+1. **Volume degradation (issue 06):** none. Collapsing the 5,034 terse lines is free
+   or better — the first volume-recall point. `+c` recommended for default (Doug's
+   call). `+m` remains built, ungraded. *(Adopted 2026-09-20: PROMPT_VERSION 4 = v3
+   text + collapsed terse input; `--no-collapse-terse` records `-c`.)*
+2. **Provenance adoption (issue 07):** declined for now. The mechanism endpoints
+   held (invented-past 0-for-2 pairs; 4/4 needles resolves 13's narrowing
+   watch-item in `+p`'s favour), but the rate came in a full tier below the unmarked
+   sibling, the pre-existing-as-change class survived marking (the `offset` row was
+   a `~` revision and was still called "gained"), and the `3+c` arm produced a
+   specimen-grade past-claim without marking — the invented-past kill is no longer
+   uniquely marking's.
+
+Comparability caveats, on the record: the two new arms are graded at the strict
+standard while `v2`/`2+r` rows are mixed-standard (strict ≤ lenient, so `3+c`'s 89%
+beating `2+r`'s 83% is understated if anything; `3+p`'s 72% vs 83% is confounded —
+under the lenient first-pass standard its two twin-partlys would likely have been
+true, landing it near 83%). Both new arms read CLASSIFY_VERSION 3 input
+(moved→metadata relabels); the older arms read v2 input. Same grader throughout, as
+ever. Current set for the pair remains `v2`; both arms sit shelved, promotable.
+Cumulative experiment spend: **~$52.2**.

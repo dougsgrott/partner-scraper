@@ -89,6 +89,22 @@ def record(db: ChangeDB, before: int, after: int, finding: Finding) -> int:
     return int(cur.lastrowid)
 
 
+def _sorted(found: list[Finding]) -> list[Finding]:
+    """Most severe impact first — the one ordering every consumer (render, seeded
+    draws) must share, or a worksheet's draw stops being reproducible."""
+    order = {impact: i for i, impact in enumerate(IMPACTS)}
+    return sorted(found, key=lambda f: (order.get(f.impact, len(IMPACTS)), -len(f.urls)))
+
+
+def _rows_to_findings(rows) -> list[Finding]:
+    return [
+        Finding(impact=r["impact"], summary=r["summary"], urls=json.loads(r["urls"]),
+                kind=r["kind"], detail=r["detail"], model=r["model"],
+                prompt_version=r["prompt_version"], id=r["id"])
+        for r in rows
+    ]
+
+
 def for_pair(db: ChangeDB, before: int, after: int, *,
              superseded: bool = False) -> list[Finding]:
     """Findings for a snapshot pair, most severe impact first.
@@ -101,14 +117,7 @@ def for_pair(db: ChangeDB, before: int, after: int, *,
     rows = db.conn.execute(
         f"SELECT * FROM findings WHERE before_snapshot = ? AND after_snapshot = ? "
         f"AND superseded_at {clause} ORDER BY id", (before, after)).fetchall()
-    findings = [
-        Finding(impact=r["impact"], summary=r["summary"], urls=json.loads(r["urls"]),
-                kind=r["kind"], detail=r["detail"], model=r["model"],
-                prompt_version=r["prompt_version"], id=r["id"])
-        for r in rows
-    ]
-    order = {impact: i for i, impact in enumerate(IMPACTS)}
-    return sorted(findings, key=lambda f: (order.get(f.impact, len(IMPACTS)), -len(f.urls)))
+    return _sorted(_rows_to_findings(rows))
 
 
 def supersede(db: ChangeDB, before: int, after: int) -> int:
@@ -125,6 +134,72 @@ def supersede(db: ChangeDB, before: int, after: int) -> int:
         (datetime.now(UTC).isoformat(timespec="seconds"), before, after))
     db.conn.commit()
     return cur.rowcount
+
+
+def shelve_new(db: ChangeDB, before: int, after: int, *, above_id: int) -> tuple[int, str]:
+    """Mark this run's fresh rows as never-current — how an arm run is recorded.
+
+    `digest run --no-replace` (issue/accuracy/13's experiment choreography, fixed after
+    the retrospective) must leave the pair's current set untouched, and its own rows
+    must not join it either — pooling arms is the one thing the ledger forbids. So the
+    rows above `above_id` (everything this run recorded) get one shared
+    `superseded_at` stamp at birth. `promote` clears exactly that stamp; `arm_run`
+    reads exactly that group.
+    """
+    stamp = datetime.now(UTC).isoformat(timespec="seconds")
+    cur = db.conn.execute(
+        "UPDATE findings SET superseded_at = ? WHERE before_snapshot = ? "
+        "AND after_snapshot = ? AND superseded_at IS NULL AND id > ?",
+        (stamp, before, after, above_id))
+    db.conn.commit()
+    return cur.rowcount, stamp
+
+
+def _latest_stamp(db: ChangeDB, before: int, after: int, prompt_version: str) -> str:
+    row = db.conn.execute(
+        "SELECT MAX(superseded_at) FROM findings WHERE before_snapshot = ? "
+        "AND after_snapshot = ? AND superseded_at IS NOT NULL AND prompt_version = ?",
+        (before, after, prompt_version)).fetchone()
+    if row[0] is None:
+        raise ValueError(
+            f"no shelved or superseded run of prompt_version {prompt_version!r} "
+            f"for pair #{before} -> #{after}")
+    return row[0]
+
+
+def arm_run(db: ChangeDB, before: int, after: int, prompt_version: str) -> list[Finding]:
+    """The latest shelved/superseded run of one prompt version, sorted like `for_pair`.
+
+    This is what `grade --prompt-version` draws from, so arm worksheets no longer need
+    the promote-grade-restore dance (or the hand-built worksheets the retrospective
+    records) just to be sampled.
+    """
+    stamp = _latest_stamp(db, before, after, prompt_version)
+    rows = db.conn.execute(
+        "SELECT * FROM findings WHERE before_snapshot = ? AND after_snapshot = ? "
+        "AND superseded_at = ? AND prompt_version = ? ORDER BY id",
+        (before, after, stamp, prompt_version)).fetchall()
+    return _sorted(_rows_to_findings(rows))
+
+
+def promote(db: ChangeDB, before: int, after: int, prompt_version: str) -> tuple[int, int]:
+    """Make one shelved run the pair's current set — the explicit current-set pointer.
+
+    Selects the *latest* stamp group of `prompt_version`, retires whatever is current,
+    and clears that group's stamp. This replaces the hand-written
+    `UPDATE … SET superseded_at = NULL` restores of the experiment arc — the dance
+    that produced one silently empty worksheet when a background supersede raced a
+    restore. Returns `(retired, promoted)` row counts.
+    """
+    stamp = _latest_stamp(db, before, after, prompt_version)  # before supersede: a
+    # promote of the sitting version must not re-select the rows it just retired.
+    retired = supersede(db, before, after)
+    cur = db.conn.execute(
+        "UPDATE findings SET superseded_at = NULL WHERE before_snapshot = ? "
+        "AND after_snapshot = ? AND superseded_at = ? AND prompt_version = ?",
+        (before, after, stamp, prompt_version))
+    db.conn.commit()
+    return retired, cur.rowcount
 
 
 def render(findings: list[Finding], *, before: str, after: str, changes: int) -> str:

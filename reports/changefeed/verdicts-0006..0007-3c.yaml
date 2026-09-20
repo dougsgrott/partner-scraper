@@ -1,0 +1,131 @@
+# ARM CAMPAIGN 2026-09-20 (issue 06): the collapse (+c) arm — first volume-recall point.
+# Graded at the strict standard, same day/grader/seed as the 3+p worksheet. Result
+# 16/2/0 = 89% — the highest graded arm on this pair — with input tokens -55%, cost
+# -19%, 72 findings (no narrowing), zero invented-past, 3/4 needles (token-counting
+# uncited, the recurring variance candidate). Finding 863 is a verbatim-true past-claim
+# produced WITHOUT marking.
+# Verdict worksheet — findings from #6 -> #7, prompt v3+c.
+# Fill `verdict` (true | partly | false | unverified) and `method`
+# (excerpt = judged from the audit's ranked lines; full-page = checked against
+# the stored page text). A blank verdict skips the entry. Then:
+#     uv run python scripts/digest.py grade --import <this file>
+pair: {before: 6, after: 7}
+prompt_version: "3+c"
+selection: draw
+seed: 1
+requested: 18
+graded_at: "2026-09-20"
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 38, drawn: 10, weight: 3.8}
+  behavioural: {population: 17, drawn: 4, weight: 4.25}
+  breaking: {population: 4, drawn: 1, weight: 4.0}
+  editorial: {population: 13, drawn: 3, weight: 4.3333}
+verdicts:
+  - id: 893
+    impact: breaking
+    summary: "Lakebase scale to zero is now documented as available only for computes of 32 CU or smaller — for an autoscaling compute, the maximum size must be 32 CU or smal"
+    verdict: "true"
+    method: "full-page"
+    notes: "Restriction wording new at #7 on both oltp pages, verbatim incl. the autoscaling clause and error."
+  - id: 920
+    impact: behavioural
+    summary: "Dropping a base table referenced by a shallow clone can now fail with `CANNOT_DROP_BASE_TABLE_REFERENCED_BY_SHALLOW_CLONE` where the workspace enforces drop-tim"
+    verdict: "partly"
+    method: "full-page"
+    notes: "Same evidence as 3+p finding 852: the FORCE + CANNOT_DROP_BASE_TABLE error already documented at #6 on the flagship DROP TABLE SQL ref; new on clone-unity-catalog plus the purge/recovery clarifications. 'Can now fail' overstates newness on the primary page."
+  - id: 863
+    impact: behavioural
+    summary: "Claude Platform on AWS organizations can now advance usage tiers automatically as they build a history of paid AWS Marketplace invoices; both pages previously s"
+    verdict: "true"
+    method: "full-page"
+    notes: "Specimen-grade true past-claim WITHOUT marking: #6 'do not move between usage tiers automatically... not to organizations billed through AWS Marketplace' -> #7 'can move to a higher usage tier automatically as they build a history of paid AWS Marketplace invoices'. Detail correctly separates what is still unavailable."
+  - id: 915
+    impact: behavioural
+    summary: "Databricks Runtime 18.1 (and 18.1 ML) and Databricks Runtime 13.3 LTS (and 13.3 LTS ML) are now marked end-of-support, with titles renamed \"(EoS)\" and maintenan"
+    verdict: "partly"
+    method: "full-page"
+    notes: "18.1, 18.1 ML and 13.3 LTS ML newly '(EoS)' — but 13.3 LTS (non-ML) already carried '(EoS)' at #6; the summary folds it in as newly marked. (The 3+p arm's finding 824 phrased exactly this correctly.)"
+  - id: 916
+    impact: behavioural
+    summary: "The row-tracking-based feature requirement is relaxed from \"Databricks Runtime 19 LTS or above\" to \"Databricks Runtime 19 or above\", and \"Delta Lake Sharing\" is"
+    verdict: "true"
+    method: "full-page"
+    notes: "Both revisions verbatim: '19 LTS or above' -> '19 or above' and 'Delta Lake Sharing' -> 'Delta Sharing'."
+  - id: 868
+    impact: additive
+    summary: "Per-message effort via `output_config.effort` on a mid-conversation system message is now available on Google Cloud as well as the Claude API, with the same `mi"
+    verdict: "true"
+    method: "full-page"
+    notes: "Verbatim revision: 'on the Claude API' -> 'on the Claude API and Google Cloud'; same beta header; tool_reference_unresolved new."
+  - id: 878
+    impact: additive
+    summary: "The Compliance API `organization_role` enum grew from \"6 more\" to \"8 more\" values beyond admin, billing and claude_code_user."
+    verdict: "true"
+    method: "full-page"
+    notes: "'6 more' -> '8 more' verbatim; the detail honestly notes the added roles are unnamed."
+  - id: 923
+    impact: additive
+    summary: "The AI Gateway coding-agent integration docs now list Claude Code alongside Codex CLI, Cursor and Gemini CLI as agents you can route through a Databricks model "
+    verdict: "true"
+    method: "full-page"
+    notes: "Claude Code new in the agent list at #7."
+  - id: 861
+    impact: additive
+    summary: "A new `compact-2026-09-04` beta adds on-demand compaction: send a top-level `compaction` parameter and the API returns a signed `compaction` block that replaces"
+    verdict: "true"
+    method: "full-page"
+    notes: "compact-2026-09-04 beta header new at #7; the on-demand compaction section is new on a page that previously covered automatic compaction only."
+  - id: 899
+    impact: additive
+    summary: "DeepSeek V4.1 Flash is now available on Foundation Model APIs and Unity Gateway, with entries in the supported-models, limits, function-calling, vision and acce"
+    verdict: "true"
+    method: "full-page"
+    notes: "Same facts as 3+p finding 825, verified: model absent at #5..#6, tables verbatim at #7."
+  - id: 897
+    impact: additive
+    summary: "ABAC row filter and column mask policies can now apply to views via an **ABAC on Views** preview that an account admin enables from the account console Previews"
+    verdict: "true"
+    method: "full-page"
+    notes: "ABAC on Views preview new at #7 on the requirements page."
+  - id: 876
+    impact: additive
+    summary: "A large set of Admin API surfaces — analytics, RBAC groups and roles, spend limits, MCP tunnels, usage and cost reports — now also appear under `api/beta/organi"
+    verdict: "true"
+    method: "full-page"
+    notes: "Matches the known #6->#7 structure: 61 of 63 added pages are the Admin API republished under api/beta/organization/*; detail correctly says mirror, nothing removed."
+  - id: 903
+    impact: additive
+    summary: "Genie Agent PDF uploads now allow up to 100 pages (was 20) and require only CAN VIEW on the agent instead of CAN RUN."
+    verdict: "true"
+    method: "full-page"
+    notes: "All four flips verbatim: 20->100 pages, CAN RUN->CAN VIEW; unchanged caps correctly stated."
+  - id: 930
+    impact: additive
+    summary: "A new Genie consumption guide covers planning enterprise Genie spend with a usage discovery period, persona tiers and budgets; the budgets and cost pages link t"
+    verdict: "true"
+    method: "full-page"
+    notes: "consumption-guide page absent at #6, present at #7."
+  - id: 924
+    impact: additive
+    summary: "Genie One adds account-only user access (Beta) for users in a registered identity provider who aren't assigned to a workspace, plus personalized starter questio"
+    verdict: "true"
+    method: "full-page"
+    notes: "Same facts as 3+p finding 857, verified new at #7."
+  - id: 881
+    impact: editorial
+    summary: "Compliance API example timestamps now carry a trailing `Z` (`2025-03-12T18:22:41.123456Z`)."
+    verdict: "true"
+    method: "full-page"
+    notes: "Z-suffixed example timestamps new at #7."
+  - id: 866
+    impact: editorial
+    summary: "Java SDK snippets across the platform pages move from 2.60.0 to 2.63.0."
+    verdict: "true"
+    method: "full-page"
+    notes: "2.60.0 -> 2.63.0 verbatim; old version absent at #7."
+  - id: 879
+    impact: editorial
+    summary: "Most of the API reference was regenerated: inline union shapes become named schema types, the beta enum count moves from \"41 more\" to \"43 more\", and prose typos"
+    verdict: "true"
+    method: "full-page"
+    notes: "'41 more' -> '43 more' verbatim; the named-schema-type regeneration matches the observed api_keys diffs (object -> BetaAPIKey* types)."
