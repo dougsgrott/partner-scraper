@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from ..db import ChangeDB
 from ..diff import DiffResult
 from .compress import compress_run
-from .findings import Finding, supersede
+from .findings import Finding, shelve_new, supersede
 from .tools import ALLOWED, DigestContext, build_server
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,19 @@ MODEL = "claude-opus-5"
 # Bump whenever the model's INPUT changes — the prompt text or the default rendering of
 # the run it reads. Findings carry it, so a later reader can tell whether two runs are
 # comparable — a changed input changes the output and nothing else records it.
-PROMPT_VERSION = "3"
+PROMPT_VERSION = "4"
+# v4 (2026-09-20, issue/accuracy/06): **the v3 prompt TEXT, unchanged, plus terse-kind
+# collapse as the default input rendering** — `compress_run(collapse_terse=True)` groups
+# `moved`/`metadata` one-liners into counted TerseGroup header lines, with `list_changes`
+# keeping every collapsed record enumerable (nothing is dropped). Adopted on one graded
+# arm ("3+c" on #6 -> #7): 16/2/0 = 89% full-page — the pair's best — at -55% input
+# tokens and -19% cost, 72 findings vs the baseline's 79, zero invented-past claims, and
+# a verbatim-true past-claim (finding 863) produced by plain two-sided visibility. One
+# pair, one arm is the standing caveat; the volume-recall question it answers is issue
+# 06's. Explicitly NOT part of v4: revision marking (+p — its second-pair confirm graded
+# 72%, candidacy declined, issue/accuracy/07), duplicate merging (+m, built, ungraded),
+# and everything v3 already excluded. A run with collapse explicitly disabled records
+# "4-c"; boost disabled still records "-r".
 # v3 (2026-09-19, issue/accuracy/13): **the v2 prompt TEXT, unchanged, plus
 # restriction-boosted input as the default** — `compress._excerpt`'s restriction-first,
 # clause-windowed excerpts (issue/accuracy/02). Adopted on two graded confirms: 10/10 vs
@@ -190,7 +202,7 @@ async def run_digest(
     boost_restrictions: bool = True,
     quote_evidence: bool = False,
     inject_restrictions: bool = False,
-    collapse_terse: bool = False,
+    collapse_terse: bool = True,
     merge_duplicates: bool = False,
     mark_revisions: bool = False,
     adaptive_slots: bool = False,
@@ -224,12 +236,15 @@ async def run_digest(
         retired = supersede(db, result.before.id, result.after.id)
         if retired:
             logger.info("superseded %d previous finding(s) for this pair", retired)
+    # `replace=False` is an experiment arm: the current set stays untouched, and this
+    # run's rows are shelved at birth (after the loop, below) — never pooled with it.
+    floor_id = db.conn.execute("SELECT COALESCE(MAX(id), 0) FROM findings").fetchone()[0]
 
-    # v3 includes the boost; disabling it is the marked deviation now.
+    # v4 includes the boost and the collapse; disabling either is the marked deviation.
     version = (PROMPT_VERSION + ("" if boost_restrictions else "-r")
+               + ("" if collapse_terse else "-c")
                + ("+q" if quote_evidence else "")
                + ("+inj" if inject_restrictions else "")
-               + ("+c" if collapse_terse else "")
                + ("+m" if merge_duplicates else "")
                + ("+p" if mark_revisions else "")
                + ("+e" if adaptive_slots else ""))
@@ -269,4 +284,9 @@ async def run_digest(
     out.findings = ctx.recorded
     out.rejected = ctx.rejected
     out.calls = dict(ctx.calls)
+    if not replace:
+        shelved, stamp = shelve_new(db, result.before.id, result.after.id,
+                                    above_id=floor_id)
+        logger.info("shelved %d arm finding(s) as %s under stamp %s — promote with "
+                    "`digest.py promote`", shelved, version, stamp)
     return out

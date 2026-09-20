@@ -44,8 +44,8 @@ acceptance criteria of most of the rest.
 | [03](03-newness-coverage.md) | Newness check: invisible identifiers, cited-page scope | measured 2026-09-18 — broadenings rejected; region FP + silent skip fixed | code + measurement |
 | [04](04-invented-contrast.md) | Verify claims about the past | done 2026-09-19 — quote check ships; rule A/B graded 90%, not adopted | code + measurement |
 | [05](05-missed-restrictions.md) | An absence detector for restrictions | done 2026-09-19 — scan ships; injection A/B graded 90% but anchoring confirmed, not adopted | code + measurement |
-| [06](06-prompt-size.md) | The 198k-token prompt: collapse, count, re-probe | open — re-probe unblocked (per-pair needles); collapse kept separate from 13's confirm | code + measurement |
-| [07](07-reappearing-lines.md) | Mark reappearing lines in diffs and excerpts | open — revised 2026-09-19: two-mechanism reframe, slots companion arm, type specimen as endpoint | code + measurement |
+| [06](06-prompt-size.md) | The 198k-token prompt: collapse, count, re-probe | done 2026-09-20 — collapse A/B graded 89% at −55% input tokens and **adopted: PROMPT_VERSION 4** (`--no-collapse-terse` records `-c`); `+m` ungraded | code + measurement |
+| [07](07-reappearing-lines.md) | Mark reappearing lines in diffs and excerpts | done 2026-09-20 — second-pair confirm: mechanism endpoints held (0 invented-past, 4/4 needles) but 72% vs sibling 89%; v4 candidacy declined | code + measurement |
 | [08](08-tiny-change-severity.md) | Severity density and the one-line change | done 2026-09-19 — option D by measurement: the head's one-liners are half the graded-true material; A and B bury it | decision |
 | [09](09-fetch-path-convergence.md) | One fetch path, always archived | done 2026-09-19 — both entry points route through `generations.archive_after`; landed before the next refresh | code |
 | [10](10-standing-instruments.md) | Promote one-off measurements into instruments | done 2026-09-19 — `measure.py` + noise registry + in-run cross-check; all recorded figures reproduced | code |

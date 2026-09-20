@@ -1,0 +1,131 @@
+# ARM CAMPAIGN 2026-09-20 (issues 06/07): the marking (+p) confirm on the second pair.
+# Graded at the POST-RE-GRADE strict standard (all 18 rows; the 2+r comparison row is
+# mixed-standard — see the experiment record's Addendum 4 for the comparability note).
+# Result 13/5/0 = 72%. All five partlys are pre-existing-content-as-change conjunctions;
+# zero invented-past in all 68 findings; 4/4 needles cited (only arm ever); findings 800
+# and 804 are verbatim-verified revision descriptions (the specimen class).
+# Verdict worksheet — findings from #6 -> #7, prompt v3+p.
+# Fill `verdict` (true | partly | false | unverified) and `method`
+# (excerpt = judged from the audit's ranked lines; full-page = checked against
+# the stored page text). A blank verdict skips the entry. Then:
+#     uv run python scripts/digest.py grade --import <this file>
+pair: {before: 6, after: 7}
+prompt_version: "3+p"
+selection: draw
+seed: 1
+requested: 18
+graded_at: "2026-09-20"
+strata:  # population and quota per impact at draw time; weight = population/drawn
+  additive: {population: 25, drawn: 7, weight: 3.5714}
+  behavioural: {population: 26, drawn: 7, weight: 3.7143}
+  breaking: {population: 7, drawn: 2, weight: 3.5}
+  editorial: {population: 10, drawn: 2, weight: 5.0}
+verdicts:
+  - id: 796
+    impact: breaking
+    summary: "Go SDK Files calls now take a params struct: `Files.Download(ctx, fileID, anthropic.FileDownloadParams{})` and `Files.GetMetadata(ctx, fileID, anthropic.FileGet"
+    verdict: "true"
+    method: "full-page"
+    notes: "Go params-struct addition verbatim: #6 `Files.Download(context.TODO(), fileID)` -> #7 adds `anthropic.FileDownloadParams{}`; GetMetadata likewise."
+  - id: 840
+    impact: breaking
+    summary: "create_table and CREATE TABLE ... FLOW cannot adopt an existing managed table; the target must be a new managed table."
+    verdict: "true"
+    method: "full-page"
+    notes: "'cannot adopt an existing managed table' new on both LDP refs, verbatim, absent at #6."
+  - id: 848
+    impact: behavioural
+    summary: "Reading the change data feed on Databricks Runtime 15.4 LTS and above now returns _commit_timestamp in the session time zone."
+    verdict: "true"
+    method: "full-page"
+    notes: "New named behaviour-change entry on 15.4lts; absent at #6."
+  - id: 844
+    impact: behavioural
+    summary: "The 2.0/jobs/list endpoint is now marked deprecated, with Jobs API 2.2 recommended instead."
+    verdict: "true"
+    method: "full-page"
+    notes: "The Important deprecation callout for 2.0/jobs/list is new at #7 ('deprecated' at #6 was elsewhere on the page)."
+  - id: 824
+    impact: behavioural
+    summary: "Databricks Runtime 18.1 (and 18.1 ML) and 13.3 LTS ML are now marked end-of-support, and their maintenance-update links were repointed to the maintenance-update"
+    verdict: "true"
+    method: "full-page"
+    notes: "18.1 and 18.1 ML titles gained '(EoS)' + support-ended note at #7; maintenance-updates-archive links new."
+  - id: 808
+    impact: behavioural
+    summary: "The top-level `workspace_id` on API key objects is deprecated in favour of `scope`, which reports the workspace's real ID even for the default workspace."
+    verdict: "partly"
+    method: "full-page"
+    notes: "The deprecation story pre-exists verbatim at #6 ('Unlike the deprecated top-level workspace_id...', scope object present). What changed this window is only the scope schema TYPE naming (object -> BetaAPIKeyOrganizationScope/BetaAPIKeyWorkspaceScope). Pre-existing fact presented as the change."
+  - id: 852
+    impact: behavioural
+    summary: "DROP TABLE docs now describe drop-time protection for base tables referenced by shallow clones, where FORCE is required and a plain drop fails with CANNOT_DROP_"
+    verdict: "partly"
+    method: "full-page"
+    notes: "The drop-time protection (FORCE + CANNOT_DROP_BASE_TABLE_REFERENCED_BY_SHALLOW_CLONE) already documented at #6 on the flagship DROP TABLE SQL ref; new this window on clone-unity-catalog plus the purge/recovery clarifications. 'Docs now describe' overstates newness on the primary page."
+  - id: 800
+    impact: behavioural
+    summary: "With `display: \"omitted\"` on the thinking configuration, the docs now say no thinking text is streamed (previously phrased as no `thinking_delta` events being s"
+    verdict: "true"
+    method: "full-page"
+    notes: "A marked revision described AS a revision with the verbatim old phrasing ('no thinking_delta events are sent' -> 'no thinking text is streamed'), semantics change captured exactly. Specimen-grade provenance."
+  - id: 856
+    impact: behavioural
+    summary: "Using a catalog backed by default storage for AI Gateway inference tables or the unified trace table requires a workspace admin to enable the Zerobus Ingest Def"
+    verdict: "true"
+    method: "full-page"
+    notes: "Zerobus Ingest Default Storage requirement new at #7; the external-storage requirement removed — 'reworked' is exactly right."
+  - id: 843
+    impact: additive
+    summary: "Metric view window measures gained offset, which requires YAML specification version 1.1 or above; unitless numeric offset and range on a consecutive integer in"
+    verdict: "partly"
+    method: "full-page"
+    notes: "'Window measures GAINED offset' is false newness: offset existed at #6 with the same YAML-1.1 requirement (then also DBR 18.1). The genuinely new half — unitless integer offset and the DBR 19 requirement — is stated correctly. Same conjunction shape as the DENY class, despite the offset row being a marked ~ revision."
+  - id: 792
+    impact: additive
+    summary: "Tool names may now be up to 128 characters; the documented regex changed from `^[a-zA-Z0-9_-]{1,64}$` to `^[a-zA-Z0-9_-]{1,128}$`."
+    verdict: "true"
+    method: "full-page"
+    notes: "Regex bound change verbatim on define-tools: {1,64} -> {1,128}; old bound absent at #7."
+  - id: 857
+    impact: additive
+    summary: "Genie One documents an account-only experience for users in a registered identity provider who aren't assigned to a workspace, plus personalized starter questio"
+    verdict: "true"
+    method: "full-page"
+    notes: "Account-only page new; memory-confirm text new at #7; re-authenticate note new on external-sources."
+  - id: 825
+    impact: additive
+    summary: "DeepSeek V4.1 Flash is available on Databricks Foundation Model APIs, with entries in the supported-models, limits, function-calling, vision and licence tables."
+    verdict: "true"
+    method: "full-page"
+    notes: "DeepSeek V4.1 Flash absent at #6 on supported-models and limits; 552B and table entries verbatim at #7."
+  - id: 830
+    impact: additive
+    summary: "Unity Catalog ABAC adds DENY policies (Beta) and metastore-level policy attachment, so one row filter, column mask, GRANT or DENY policy can apply across every "
+    verdict: "partly"
+    method: "full-page"
+    notes: "Twin of finding 763 (2+r), same split: metastore attachment true in every detail; 'adds DENY policies (Beta)' false newness — deny-policies page exists at #6."
+  - id: 804
+    impact: additive
+    summary: "The Opus 5 migration guide now lists Claude Platform on AWS among the platforms where the 1M context window is the default and the context-window beta header sh"
+    verdict: "true"
+    method: "full-page"
+    notes: "Verbatim single-line revision: 'Claude Platform on AWS' inserted into the 1M-context platform list; the detail's 'previously named...' matches the minus line word-for-word. Specimen-grade past-claim, TRUE."
+  - id: 798
+    impact: additive
+    summary: "Files, Skills and Message Batches reference pages now document an optional `anthropic-workspace-id` header."
+    verdict: "true"
+    method: "full-page"
+    notes: "anthropic-workspace-id header new at #7 on files and skills endpoints."
+  - id: 815
+    impact: editorial
+    summary: "Several Admin API curl examples now use `-H \"X-Api-Key: $ANTHROPIC_API_KEY\"` instead of `-H \"Authorization: Bearer $ANTHROPIC_AUTH_TOKEN\"`."
+    verdict: "true"
+    method: "full-page"
+    notes: "Exact curl auth-header swap verbatim; old form only on the removed side."
+  - id: 807
+    impact: editorial
+    summary: "The Compliance API 403 scope error message format changed from `Needed: [...]` to `Needed one of: [...]`."
+    verdict: "partly"
+    method: "full-page"
+    notes: "Twin of finding 736 under the re-grade standard: the change is real and verbatim, but the after page itself keeps `Needed: [...]` on the delete endpoints — the universal 'format changed' is over-broad."

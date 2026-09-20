@@ -122,9 +122,45 @@ def cmd_run(args) -> int:
             collapse_terse=args.collapse_terse,
             merge_duplicates=args.merge_duplicates,
             mark_revisions=args.mark_revisions,
-            adaptive_slots=args.adaptive_slots))
+            adaptive_slots=args.adaptive_slots,
+            replace=args.replace))
         print(outcome.render())
-        return _write(db, before, after, len(result.changes), args)
+        if args.replace:
+            return _write(db, before, after, len(result.changes), args)
+        # A shelved arm run: render what it recorded, never the (untouched) current set.
+        if not outcome.findings:
+            print("arm run recorded no findings", file=sys.stderr)
+            return 1
+        version = (outcome.findings[0].prompt_version or "arm").replace("+", "")
+        text = findings.render(outcome.findings, before=before.name, after=after.name,
+                               changes=len(result.changes))
+        out = Path(args.out or
+                   f"reports/changefeed/digest-{before.id:04d}..{after.id:04d}-{version}.md")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(f"  arm digest       {out}")
+        print(f"  shelved as       {outcome.findings[0].prompt_version} — grade with "
+              f"`grade --prompt-version`, adopt with `promote`")
+        return 0
+
+
+def cmd_promote(args) -> int:
+    """Point the pair's current set at a shelved arm — no hand-written SQL."""
+    with ChangeDB(args.changes_db) if args.changes_db else ChangeDB() as db:
+        pair = _pair(db, args)
+        if pair is None:
+            return 1
+        before, after = pair
+        try:
+            retired, promoted = findings.promote(db, before.id, after.id,
+                                                 args.prompt_version)
+        except ValueError as err:
+            print(err, file=sys.stderr)
+            return 1
+        print(f"  retired          {retired} current finding(s)")
+        print(f"  promoted         {promoted} finding(s) of {args.prompt_version}")
+        print("  re-render with `digest.py render` to refresh the digest file")
+        return 0
 
 
 def cmd_render(args) -> int:
@@ -255,7 +291,14 @@ def cmd_grade(args) -> int:
         if pair is None:
             return 1
         before, after = pair
-        stored = findings.for_pair(db, before.id, after.id)
+        if args.prompt_version:
+            try:
+                stored = findings.arm_run(db, before.id, after.id, args.prompt_version)
+            except ValueError as err:
+                print(err, file=sys.stderr)
+                return 1
+        else:
+            stored = findings.for_pair(db, before.id, after.id)
         if not stored:
             print("no findings for this pair", file=sys.stderr)
             return 1
@@ -263,8 +306,9 @@ def cmd_grade(args) -> int:
         text = verdicts.worksheet(
             (before.id, after.id), stored, drawn, seed=args.seed, requested=args.n,
             graded_at=datetime.now(UTC).date().isoformat())
+        suffix = f"-{args.prompt_version.replace('+', '')}" if args.prompt_version else ""
         out = Path(args.out or
-                   f"reports/changefeed/verdicts-{before.id:04d}..{after.id:04d}.yaml")
+                   f"reports/changefeed/verdicts-{before.id:04d}..{after.id:04d}{suffix}.yaml")
         if out.exists() and not args.force:
             print(f"{out} already exists — it may hold grades not yet imported. "
                   f"Use --out for a new file or --force to overwrite.", file=sys.stderr)
@@ -312,10 +356,11 @@ def main() -> None:
 
     boost_help = ("restriction-first, clause-windowed excerpts — THE DEFAULT since "
                   "prompt v3 (issue/accuracy/13, two graded confirms); "
-                  "--no-boost-restrictions disables it and findings record '3-r'")
-    collapse_help = ("A/B arm (issue 06): group moved/metadata pages one line per "
-                     "kind+category (saved ~55%% of the event-pair prompt); "
-                     "list_changes enumerates them; findings record '+c'")
+                  "--no-boost-restrictions disables it and findings record '-r'")
+    collapse_help = ("group moved/metadata pages one line per kind+category — the "
+                     "prompt v4 default, graded 89%% at -55%% input tokens "
+                     "(issue/accuracy/06); list_changes keeps them enumerable; "
+                     "--no-collapse-terse disables it and findings record '-c'")
     merge_help = ("A/B arm (issue 06): pages with byte-identical changed lines render "
                   "as one record naming the group; findings record '+m'")
     mark_help = ("A/B arm (issue 07): tag shown lines that are close revisions of the "
@@ -333,7 +378,8 @@ def main() -> None:
     p.add_argument("--head", type=int, help="print the first N lines")
     p.add_argument("--boost-restrictions", action=argparse.BooleanOptionalAction,
                    default=True, help=boost_help)
-    p.add_argument("--collapse-terse", action="store_true", help=collapse_help)
+    p.add_argument("--collapse-terse", action=argparse.BooleanOptionalAction,
+                   default=True, help=collapse_help)
     p.add_argument("--merge-duplicates", action="store_true", help=merge_help)
     p.add_argument("--mark-revisions", action="store_true", help=mark_help)
     p.add_argument("--adaptive-slots", action="store_true", help=slots_help)
@@ -361,11 +407,26 @@ def main() -> None:
     p.add_argument("--inject-restrictions", action="store_true",
                    help="A/B arm (issue 05): append the absence scan's candidates to "
                         "the prompt; findings record prompt_version '+inj'")
-    p.add_argument("--collapse-terse", action="store_true", help=collapse_help)
+    p.add_argument("--collapse-terse", action=argparse.BooleanOptionalAction,
+                   default=True, help=collapse_help)
     p.add_argument("--merge-duplicates", action="store_true", help=merge_help)
     p.add_argument("--mark-revisions", action="store_true", help=mark_help)
     p.add_argument("--adaptive-slots", action="store_true", help=slots_help)
+    p.add_argument("--replace", action=argparse.BooleanOptionalAction, default=True,
+                   help="--no-replace records the run as a shelved experiment arm: the "
+                        "pair's current findings stay current, the arm never pools "
+                        "with them, and `promote` makes it current later if it wins")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("promote", help="make a shelved arm run the pair's current "
+                                       "findings (the explicit current-set pointer)")
+    p.add_argument("before", nargs="?")
+    p.add_argument("after", nargs="?")
+    p.add_argument("--prompt-version", required=True,
+                   help="the arm to promote, e.g. '3+p'; the latest run of that "
+                        "version wins")
+    p.add_argument("--changes-db")
+    p.set_defaults(func=cmd_promote)
 
     p = sub.add_parser("render", help="re-render stored findings — no model, no cost")
     p.add_argument("before", nargs="?")
@@ -403,6 +464,10 @@ def main() -> None:
     p.add_argument("--force", action="store_true", help="overwrite an existing worksheet")
     p.add_argument("--import", dest="import_file", metavar="FILE",
                    help="validate FILE and store its verdicts; nothing else happens")
+    p.add_argument("--prompt-version",
+                   help="draw from the latest shelved/superseded run of this version "
+                        "instead of the current set — arm worksheets without the "
+                        "promote/restore dance")
     p.add_argument("--changes-db")
     p.set_defaults(func=cmd_grade)
 

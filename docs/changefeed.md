@@ -187,6 +187,51 @@ Measured on the real corpus:
 single version of each page and `index.db` is derived from it, but the history exists
 nowhere else — losing it loses the past. Worth backing up in a way the other two are not.
 
+## The era boundary: snapshot #8
+
+> Declared 2026-09-20, after the accuracy arc (issues 01–13) and the layout migration
+> landed together. This section governs how the history is *compared*, not what is
+> *kept* — a considered alternative was discarding pre-arc data for a clean start, and
+> it was rejected: the old era holds the only copies of two natural vendor events, the
+> graded ground truth, and the regression bytes every instrument is tested against.
+> The past cannot be re-scraped. Everything stays; the boundary makes it readable.
+
+**The modern era begins at snapshot #8 (`layout-flattened`, 2026-09-20, 6,771 pages,
+0 new bodies).** Everything from #8 onward runs under one consistent regime:
+
+- flat corpus layout — `data/<company>/<category>/<slug>.md`, no date segment
+- `PROMPT_VERSION` 3 (v2 text + restriction-boosted excerpts) as the digest default
+- `CLASSIFY_VERSION` 3 (date-only relocations classify as `metadata`, never `moved`)
+- the corrected token estimator (`CHARS_PER_TOKEN` 2.27, measured)
+- archiving on every fetch path, the reconciliation block and the noise canary in
+  every `changes.py run`
+
+**Rules for reading across the boundary:**
+
+1. **The #7 → #8 diff is the migration itself** — `moved 6771`, all `pipeline`,
+   0 vendor changes. It is a verification artifact, never a data point in any churn,
+   volume, or noise figure.
+2. **Old-era pairs (≤ #7 → #8) are artifacts of their era's code.** Their
+   `page_versions.file_path` rows keep dated paths forever (records are records);
+   re-diffing any old pair against a new snapshot crosses the layout change, and the
+   permanent pipeline-cause rule attributes that churn to us, correctly. Reports
+   rendered under `classify_version` ≤ 2 will not re-render byte-identically on
+   re-date windows — compare *stamped* outputs, not re-renders.
+3. **Old-era token and cost figures read ×1.5.** Every prompt-size number recorded
+   before 2026-09-19 used the optimistic estimator ("198k" was 305k real). Cost
+   figures are real; token figures are not.
+4. **Ledger comparisons follow the stamps, as always.** `digest.py accuracy` rows
+   from prompt v1/v2 and the experiment arms are old-era ground truth — compare
+   within `prompt_version` + method + selection, never pooled across the boundary as
+   one rate. Snapshot #6's label ("2026-09-09") names its *content* date, not its
+   taken date — the one old-era labelling wart, recorded in
+   `docs/session-2026-09-18-lessons.md` §1.
+5. **The old era is the regression corpus, not deprecated history.** The launch week
+   (#5 → #6) and the site-wide re-date (#6 → #7), the raw generations behind them,
+   the graded arms, and the needle files are the ground truth that every future
+   change is measured against. The boundary licenses treating trends as starting at
+   #8; it does not license deleting, "cleaning", or re-writing anything before it.
+
 ## Measured churn
 
 The first real measurement, snapshots #1 → #2, covering **2026-08-18 → 2026-08-29** (11 days).

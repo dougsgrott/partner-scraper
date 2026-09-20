@@ -649,7 +649,17 @@ the accuracy plan pre-registered. The collapse and the duplicate-merge are built
 `digest.py run --collapse-terse / --merge-duplicates` (findings record `+c`/`+m`): on the
 event pair they cut the prompt 301k → 137k tokens (−55%, ~$2/run), on a quiet pair −21%
 (all from merging the ~250 mirror-identical records). Their graded A/B is sequenced
-after the boost confirm ([issue 13](../issue/accuracy/13-boost-adoption.md)). The
+after the boost confirm ([issue 13](../issue/accuracy/13-boost-adoption.md)).
+
+**Adoption — decided (2026-09-20, [issue/accuracy/06](../issue/accuracy/06-prompt-size.md)):
+the collapse is the default.** The graded arm (`3+c` on #6 → #7, $4.26) came back
+**16/2/0 = 89% full-page** — the pair's best — at −55% input tokens and −19% cost,
+72 findings against the baseline's 79, zero invented-past claims, 3 of 4 needles.
+`PROMPT_VERSION` is now **"4" = the v3 prompt text, unchanged, plus collapsed terse
+input**, defined beside the constant with the declined arms excluded (revision
+marking's second-pair confirm graded 72% and its v4 candidacy was declined —
+[issue 07](../issue/accuracy/07-reappearing-lines.md)); `--no-collapse-terse`
+records `-c`. `merge_duplicates` (`+m`) remains a flagged, ungraded arm. The
 `compress.py` promise is amended in the open: every change is a line, **or enumerable
 through the `list_changes` session tool**; and the audit now counts a mirror pair as one
 piece of evidence, not two.

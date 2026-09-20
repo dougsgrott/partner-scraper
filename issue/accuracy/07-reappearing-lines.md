@@ -1,8 +1,10 @@
 # 07 — Mark reappearing lines in diffs and excerpts
 
-**Status:** done (2026-09-19), uncommitted — built, measured, both arms run and graded,
-**the primary endpoint delivered by the marking arm and the provenance bet answered
-yes**; see *Measured*, *The arms*, and *The bet, answered* below ·
+**Status:** done (2026-09-19/20), uncommitted — built, measured, three arms run and
+graded. **The provenance bet answered yes; the v4 candidacy declined on the
+second-pair confirm** (mechanism endpoints held — 0 invented-past, 4/4 needles —
+but the rate came in a tier below the unmarked sibling arm); see *The bet,
+answered* and *The second-pair confirm* ·
 **Kind:** code + measurement · **Effort:** ~3 h build + two graded arms
 **Depends on:** [01](01-verdict-ledger.md) (the ledger, live); the baseline of
 [13](13-boost-adoption.md) if arms run on #6 → #7 · **Blocks:** nothing
@@ -177,3 +179,36 @@ finding). Adoption question now on the table for [13](13-boost-adoption.md)'s
 process: `+p` beat nothing but its draw is one finding below `+r`'s 10/10 while
 delivering the specimen — a confirming marked run on #6 → #7 rides along with the
 boost confirm if Doug wants both.
+
+## The second-pair confirm (2026-09-20): v4 candidacy declined for now
+
+The `3+p` confirm ran on #6 → #7 ($5.23, 68 findings, shelved via the new
+`--no-replace`; worksheet `verdicts-0006..0007-3p.yaml`, graded at the strict
+post-re-grade standard).
+
+**The mechanism endpoints held, cleanly.** Invented-past signature: **0 of 68** —
+now 0-for-2 pairs under marking (and 0-for-72 in the same-day `3+c` arm; the
+signature appears dead under every boost-era prompt, which weakens the claim that
+marking specifically kills it). **4 of 4 needles cited — the only arm on any pair
+ever to do that**, including the Kimi-retirement control and `token-counting` that
+the `2+r` confirm missed, which resolves 13's narrowing watch-item in this arm's
+favour. Twelve findings describe changes *as revisions*; two were verbatim-verified
+in the draw (800: the `thinking_delta` rewording with the old phrasing quoted; 804:
+the 1M-context platform list with the previous list stated exactly).
+
+**The rate did not hold.** 13/5/0 = **72%** — the lowest graded arm on this pair at
+the strict standard, against `3+c`'s same-day, same-grader, same-standard **89%**.
+All five partlys are one class: pre-existing content conjoined into a change claim
+(the DENY and 403 twins of 763/736, plus `workspace_id` deprecation, drop-protection,
+and "gained offset"). Marking demonstrably did not fix that class even when the
+evidence was marked: the `offset` row *was* a `~` revision and the model still wrote
+"gained offset". Meanwhile the unmarked `3+c` arm produced finding 863 — a
+verbatim-true past-claim from plain two-sided excerpt visibility.
+
+**Verdict: `+p` is not the v4 candidate on this evidence.** Its unique, replicated
+value is needle coverage (4/4) and revision framing; its cost is a rate a full tier
+below its unmarked sibling, with the invented-past kill no longer uniquely its.
+Standing caveats: one graded pair per comparison, strict-vs-mixed standard across
+older arms, CLASSIFY_VERSION 3 input on both new arms. If a future pair shows the
+invented-past signature returning under an unmarked prompt, this confirm should be
+re-read — that is the one result that would reopen `+p`.

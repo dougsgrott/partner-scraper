@@ -104,7 +104,9 @@ because a background run's supersede fired between a restore and a draw (the
 draw read zero current findings). The ledger absorbed all of it — grades attach to
 rows — but the choreography was manual and error-prone. If arm-running becomes
 routine, `run --no-replace` plus an explicit "current set" pointer is the missing
-schema feature.
+schema feature. *(Built 2026-09-20 — `run --no-replace` shelves an arm at birth,
+`grade --prompt-version` draws from it, `promote` is the pointer; the 2026-09-20
+two-arm campaign ran on it without a single manual UPDATE.)*
 
 **5. Process-management slips.** One arm was launched with a shell `&` instead of the
 background mechanism, losing its completion notification (recovered by polling); one

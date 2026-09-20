@@ -336,6 +336,94 @@ def test_a_rerun_supersedes_findings_rather_than_destroying_them(corpus):
         db.close()
 
 
+def test_an_arm_run_is_shelved_and_never_pools_with_current(corpus):
+    """Issue 13's choreography fix: `run --no-replace` leaves the current set alone,
+    and the arm's rows never join it — pooling arms is what the ledger forbids."""
+    from changefeed.digest.findings import Finding, arm_run, for_pair, shelve_new
+    from changefeed.digest.findings import record as store
+
+    _changed(corpus)
+    _, db = _ctx(corpus)
+    try:
+        current = Finding(impact="breaking", summary="current story",
+                          urls=[record("a").source_url], prompt_version="3")
+        store(db, 1, 2, current)
+        floor = db.conn.execute("SELECT MAX(id) FROM findings").fetchone()[0]
+
+        arm = Finding(impact="additive", summary="arm story",
+                      urls=[record("a").source_url], prompt_version="3+p")
+        store(db, 1, 2, arm)
+        shelved, _stamp = shelve_new(db, 1, 2, above_id=floor)
+
+        assert shelved == 1
+        assert [f.summary for f in for_pair(db, 1, 2)] == ["current story"]
+        assert [f.summary for f in arm_run(db, 1, 2, "3+p")] == ["arm story"]
+    finally:
+        db.close()
+
+
+def test_promote_points_current_at_a_shelved_arm(corpus):
+    from changefeed.digest.findings import Finding, for_pair, promote, shelve_new
+    from changefeed.digest.findings import record as store
+
+    _changed(corpus)
+    _, db = _ctx(corpus)
+    try:
+        store(db, 1, 2, Finding(impact="breaking", summary="old current",
+                                urls=[record("a").source_url], prompt_version="3"))
+        floor = db.conn.execute("SELECT MAX(id) FROM findings").fetchone()[0]
+        store(db, 1, 2, Finding(impact="additive", summary="the winning arm",
+                                urls=[record("a").source_url], prompt_version="3+p"))
+        shelve_new(db, 1, 2, above_id=floor)
+
+        retired, promoted = promote(db, 1, 2, "3+p")
+
+        assert (retired, promoted) == (1, 1)
+        assert [f.summary for f in for_pair(db, 1, 2)] == ["the winning arm"]
+        # the old current set is retired, not destroyed
+        assert "old current" in {f.summary for f in for_pair(db, 1, 2, superseded=True)}
+    finally:
+        db.close()
+
+
+def test_promote_of_an_unknown_arm_is_refused(corpus):
+    import pytest
+
+    from changefeed.digest.findings import promote
+
+    _changed(corpus)
+    _, db = _ctx(corpus)
+    try:
+        with pytest.raises(ValueError, match="no shelved or superseded run"):
+            promote(db, 1, 2, "9+nope")
+    finally:
+        db.close()
+
+
+def test_arm_run_reads_the_latest_run_of_a_version(corpus):
+    """Two shelved runs of one version: the newer stamp group wins, whole."""
+    from changefeed.digest.findings import Finding, arm_run, shelve_new
+    from changefeed.digest.findings import record as store
+
+    _changed(corpus)
+    _, db = _ctx(corpus)
+    try:
+        for run_no in (1, 2):
+            floor = db.conn.execute(
+                "SELECT COALESCE(MAX(id), 0) FROM findings").fetchone()[0]
+            store(db, 1, 2, Finding(impact="additive", summary=f"run {run_no}",
+                                    urls=[record("a").source_url], prompt_version="3+p"))
+            _, stamp = shelve_new(db, 1, 2, above_id=floor)
+            # distinct stamps even inside one second
+            db.conn.execute("UPDATE findings SET superseded_at = ? "
+                            "WHERE superseded_at = ?", (f"{stamp}-{run_no}", stamp))
+            db.conn.commit()
+
+        assert [f.summary for f in arm_run(db, 1, 2, "3+p")] == ["run 2"]
+    finally:
+        db.close()
+
+
 def test_the_digest_renders_grouped_by_impact():
     from changefeed.digest.findings import Finding, render
 
@@ -1436,3 +1524,32 @@ async def test_the_issue_07_arms_wire_their_legend_and_versions(corpus, monkeypa
         await session_mod.run_digest(result, db=db, blob_dir=str(corpus.blob_dir),
                                      boost_restrictions=True, adaptive_slots=True)
         assert "`~` sign" not in seen["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_v4_collapses_terse_kinds_by_default(corpus, monkeypatch):
+    """The prompt-v4 adoption (issue/accuracy/06): a default session reads grouped
+    terse lines, and opting out is the marked deviation — an unmarked deviation
+    would poison the ledger."""
+    import claude_agent_sdk
+
+    from changefeed.digest import session as session_mod
+
+    seen = {}
+
+    async def fake_query(*, prompt, options, **_):
+        seen["prompt"] = prompt
+        return
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+    result = _many_moved(corpus)
+    with ChangeDB(corpus.changes_db) as db:
+        await session_mod.run_digest(result, db=db, blob_dir=str(corpus.blob_dir))
+        assert "METADATA x12" in seen["prompt"]          # the TerseGroup header line
+
+        await session_mod.run_digest(result, db=db, blob_dir=str(corpus.blob_dir),
+                                     collapse_terse=False)
+        assert "METADATA x12" not in seen["prompt"]
+
+    assert session_mod.PROMPT_VERSION == "4"
