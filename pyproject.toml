@@ -24,6 +24,11 @@ enrich = ["anthropic>=0.40"]
 # The SDK authenticates through the installed Claude Code CLI, so no API key is required.
 digest = ["claude-agent-sdk>=0.1"]
 
+# The local review UI (docs/review-tool-plan.md). Same posture as `digest`: the core
+# pipeline never imports it, and `scripts/review.py` fails with an install hint when
+# the extra is missing.
+review = ["fastapi>=0.115", "uvicorn>=0.30"]
+
 [project.scripts]
 scraper = "scraper.cli:main"
 
@@ -42,7 +47,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 # `changefeed` is an application built on the corpus, not part of building it. It imports
 # `scraper`; `scraper` never imports it (docs/changefeed-plan.md).
-packages = ["src/scraper", "src/changefeed", "src/corpusgraph"]
+packages = ["src/scraper", "src/changefeed", "src/corpusgraph", "src/review"]
 
 [tool.ruff]
 line-length = 100

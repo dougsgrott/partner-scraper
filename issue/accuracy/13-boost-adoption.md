@@ -78,7 +78,14 @@ Leaning **B**: the ledger's key is the axis that must not fork.
 - **A second grader.** The arms were built and graded by the same session — the one
   bias the ledger records (`grader`) but cannot correct. Doug re-grades a handful of
   `2+r` and combined-arm worksheet rows from the blobs; agreement or disagreement gets
-  a line in the experiment record either way.
+  a line in the experiment record either way. **The vehicle is the review tool**
+  (`scripts/review.py serve`, [docs/review-tool-plan.md](../../docs/review-tool-plan.md)):
+  a targeted grading queue over those rows enforces the blind protocol in code — prior
+  verdicts are withheld until after submit, then revealed for the agreement comparison —
+  and stamps `grader` on every verdict. The ledger keeps one row per (finding, method),
+  so the re-grade *replaces* the stored full-page row; the original stays readable in
+  its worksheet provenance and in the reveal, which is where the agreement line for the
+  experiment record comes from.
 
 ## The number to get first
 

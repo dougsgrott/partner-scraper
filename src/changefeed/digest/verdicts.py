@@ -53,6 +53,10 @@ class Verdict:
     stratum_weight: float | None = None
     notes: str | None = None
     source: str | None = None
+    # Who graded (issue/accuracy/13): independence is a dimension the ledger must not
+    # blur either — two graders agreeing means something only if the rows say there
+    # were two. Nullable; every grade from before the column keeps meaning what it meant.
+    grader: str | None = None
 
 
 def stratum_weights(findings: list[Finding], drawn: list[Finding]) -> dict[str, dict]:
@@ -86,9 +90,10 @@ def store(db: ChangeDB, verdicts: list[Verdict]) -> int:
     """
     db.conn.executemany(
         "INSERT OR REPLACE INTO verdicts (finding_id, method, verdict, graded_at, "
-        "selection, stratum, stratum_weight, notes, source) VALUES (?,?,?,?,?,?,?,?,?)",
+        "selection, stratum, stratum_weight, notes, source, grader) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
         [(v.finding_id, v.method, v.verdict, v.graded_at, v.selection, v.stratum,
-          v.stratum_weight, v.notes, v.source) for v in verdicts],
+          v.stratum_weight, v.notes, v.source, v.grader) for v in verdicts],
     )
     db.conn.commit()
     return len(verdicts)
@@ -106,39 +111,43 @@ def for_pair(db: ChangeDB, before: int, after: int) -> list[Verdict]:
         (before, after)).fetchall()
     return [Verdict(r["finding_id"], r["verdict"], r["method"], r["graded_at"],
                     r["selection"], r["stratum"], r["stratum_weight"], r["notes"],
-                    r["source"]) for r in rows]
+                    r["source"], r["grader"]) for r in rows]
 
 
 def accuracy(db: ChangeDB, *, method: str | None = None) -> list[dict]:
-    """Grade counts per (pair, prompt version, selection, method) — the comparison the
-    schema was built for.
+    """Grade counts per (pair, prompt version, selection, method, grader) — the
+    comparison the schema was built for.
 
     One row per group, never merged across `method` or `selection`: an excerpt grade and
     a full-page grade of the same prompt are different measurements, and a targeted
     group's rate is not an accuracy estimate at all (the findings were picked because
-    something was wrong with them). `rate` is true / (true + partly + false); `weighted`
-    is the stratum-weighted version, present only when every graded row in the group
-    carries a weight; `unverified` rows count in neither.
+    something was wrong with them). `grader` splits groups the same way — two graders'
+    rates over the same draw are the agreement measurement issue 13 asks for, and
+    pooling them would hide exactly the disagreement being measured. Rows from before
+    the column all carry NULL and group together, unchanged. `rate` is
+    true / (true + partly + false); `weighted` is the stratum-weighted version, present
+    only when every graded row in the group carries a weight; `unverified` rows count
+    in neither.
     """
     clause, params = "", []
     if method:
         clause, params = "WHERE v.method = ?", [method]
     rows = db.conn.execute(
         f"SELECT f.before_snapshot b, f.after_snapshot a, f.prompt_version pv, "
-        f"v.selection sel, v.method m, v.verdict, v.stratum_weight w "
+        f"v.selection sel, v.method m, v.grader g, v.verdict, v.stratum_weight w "
         f"FROM verdicts v JOIN findings f ON f.id = v.finding_id {clause} "
         f"ORDER BY f.before_snapshot, f.after_snapshot, f.prompt_version", params).fetchall()
 
     groups: dict[tuple, list] = {}
     for r in rows:
-        groups.setdefault((r["b"], r["a"], r["pv"], r["sel"], r["m"]), []).append(r)
+        groups.setdefault((r["b"], r["a"], r["pv"], r["sel"], r["m"], r["g"]), []).append(r)
 
     out = []
-    for (b, a, pv, sel, m), rs in groups.items():
+    for (b, a, pv, sel, m, g), rs in groups.items():
         counts = {v: sum(1 for r in rs if r["verdict"] == v) for v in VERDICTS}
         graded = [r for r in rs if r["verdict"] != "unverified"]
         row = {"before": b, "after": a, "prompt_version": pv, "selection": sel,
-               "method": m, **counts, "n": len(rs),
+               "method": m, "grader": g, **counts, "n": len(rs),
                "rate": (counts["true"] / len(graded)) if graded else None}
         if graded and all(r["w"] is not None for r in graded):
             total = sum(r["w"] for r in graded)
@@ -160,17 +169,25 @@ def _yaml_str(text: str) -> str:
 
 
 def worksheet(pair: tuple[int, int], all_findings: list[Finding],
-              drawn: list[Finding], *, seed: int, requested: int,
-              graded_at: str) -> str:
+              drawn: list[Finding], *, seed: int | None = None,
+              requested: int | None = None, graded_at: str,
+              selection: str = "draw", grader: str | None = None,
+              filled: dict[int, Verdict] | None = None) -> str:
     """The file a grader edits: one entry per drawn finding, verdict left blank.
 
     Summaries are included for reading convenience only — the import keys on `id` and
     re-reads everything else from the database, so editing a summary here changes
     nothing. The strata block is the draw's sampling record; without it the sample
-    cannot be extrapolated later.
+    cannot be extrapolated later. A `targeted` selection carries no strata — a
+    hand-picked set has no sampling record to extrapolate from.
+
+    `filled` maps finding id to an already-stored verdict, which is how the review UI
+    exports its provenance: the same file format, values written instead of blank, so
+    the "worksheet is the rebuildable provenance" promise survives the UI. A filled
+    entry carries its own `graded_at` (and `grader`, when it differs from the header's).
     """
     pv = next((f.prompt_version for f in drawn if f.prompt_version), None)
-    strata = stratum_weights(all_findings, drawn)
+    filled = filled or {}
     lines = [
         f"# Verdict worksheet — findings from #{pair[0]} -> #{pair[1]}"
         + (f", prompt v{pv}." if pv else "."),
@@ -180,25 +197,41 @@ def worksheet(pair: tuple[int, int], all_findings: list[Finding],
         "#     uv run python scripts/digest.py grade --import <this file>",
         f"pair: {{before: {pair[0]}, after: {pair[1]}}}",
         f"prompt_version: {_yaml_str(pv) if pv else 'null'}",
-        "selection: draw",
-        f"seed: {seed}",
-        f"requested: {requested}",
-        f"graded_at: {_yaml_str(graded_at)}",
-        "strata:  # population and quota per impact at draw time; weight = population/drawn",
+        f"selection: {selection}",
     ]
-    for impact, s in strata.items():
-        lines.append(f"  {impact}: {{population: {s['population']}, "
-                     f"drawn: {s['drawn']}, weight: {s['weight']}}}")
+    if seed is not None:
+        lines.append(f"seed: {seed}")
+    if requested is not None:
+        lines.append(f"requested: {requested}")
+    lines.append(f"graded_at: {_yaml_str(graded_at)}")
+    if grader:
+        lines.append(f"grader: {_yaml_str(grader)}")
+    if selection == "draw":
+        strata = stratum_weights(all_findings, drawn)
+        lines.append("strata:  # population and quota per impact at draw time; "
+                     "weight = population/drawn")
+        for impact, s in strata.items():
+            lines.append(f"  {impact}: {{population: {s['population']}, "
+                         f"drawn: {s['drawn']}, weight: {s['weight']}}}")
     lines.append("verdicts:")
     for f in drawn:
         lines += [
             f"  - id: {f.id}",
             f"    impact: {f.impact}",
             f"    summary: {_yaml_str(f.summary[:160])}",
-            "    verdict:",
-            "    method:",
-            '    notes: ""',
         ]
+        v = filled.get(f.id)
+        if v is None:
+            lines += ["    verdict:", "    method:", '    notes: ""']
+            continue
+        lines += [
+            f"    verdict: {_yaml_str(v.verdict)}",
+            f"    method: {_yaml_str(v.method)}",
+            f"    graded_at: {_yaml_str(v.graded_at)}",
+        ]
+        if v.grader and v.grader != grader:
+            lines.append(f"    grader: {_yaml_str(v.grader)}")
+        lines.append(f"    notes: {_yaml_str(v.notes or '')}")
     return "\n".join(lines) + "\n"
 
 
@@ -228,6 +261,7 @@ def parse(path: str | Path, db: ChangeDB) -> list[Verdict]:
     strata = spec.get("strata") or {}
     default_graded_at = spec.get("graded_at")
     default_source = spec.get("source") or str(path)
+    default_grader = spec.get("grader")
 
     known = {
         r["id"]: r["impact"]
@@ -265,7 +299,8 @@ def parse(path: str | Path, db: ChangeDB) -> list[Verdict]:
             finding_id=fid, verdict=str(verdict), method=str(entry_method),
             graded_at=str(graded_at), selection=selection, stratum=impact,
             stratum_weight=weight, notes=(entry.get("notes") or None),
-            source=default_source))
+            source=default_source,
+            grader=(entry.get("grader") or default_grader)))
 
     if problems:
         raise WorksheetError(f"{path}:\n  " + "\n  ".join(problems))
