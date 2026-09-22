@@ -120,6 +120,29 @@ def for_pair(db: ChangeDB, before: int, after: int, *,
     return _sorted(_rows_to_findings(rows))
 
 
+def by_ids(db: ChangeDB, before: int, after: int, ids: list[int]) -> list[Finding]:
+    """Findings of a pair fetched by id, in the order given, superseded rows included.
+
+    The lookup for a *targeted* set — findings picked by hand, so current-vs-shelved is
+    irrelevant and the caller's order is the reading order. An id that is missing or
+    belongs to another pair raises: a targeted grade silently attached to the wrong
+    finding would be wrong forever.
+    """
+    if not ids:
+        return []
+    placeholders = ",".join("?" * len(ids))
+    rows = db.conn.execute(
+        f"SELECT * FROM findings WHERE id IN ({placeholders}) "
+        f"AND before_snapshot = ? AND after_snapshot = ?",
+        (*ids, before, after)).fetchall()
+    by_id = {f.id: f for f in _rows_to_findings(rows)}
+    missing = [i for i in ids if i not in by_id]
+    if missing:
+        raise ValueError(f"no such finding(s) for pair #{before} -> #{after}: "
+                         + ", ".join(map(str, missing)))
+    return [by_id[i] for i in ids]
+
+
 def supersede(db: ChangeDB, before: int, after: int) -> int:
     """Retire the current findings for a pair without destroying them.
 

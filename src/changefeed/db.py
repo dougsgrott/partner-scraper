@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS verdicts (
     stratum_weight REAL,              -- population / drawn for that stratum; NULL if targeted
     notes          TEXT,
     source         TEXT,              -- the worksheet file this row came from
+    grader         TEXT,              -- who graded; NULL on rows from before the column
     PRIMARY KEY (finding_id, method)
 );
 """
@@ -121,6 +122,12 @@ _ADDED_FINDING_COLUMNS = (
     # a reworded prompt changes the output and nothing records which one produced what.
     ("model", "TEXT"),
     ("prompt_version", "TEXT"),
+)
+_ADDED_VERDICT_COLUMNS = (
+    # Grader identity, issue/accuracy/13: the arms were built and graded by the same
+    # session — the one bias the ledger records but could not name. Nullable, so every
+    # grade imported before the column keeps meaning exactly what it meant.
+    ("grader", "TEXT"),
 )
 
 
@@ -157,13 +164,27 @@ class ChangeDB:
         Runs after `_SCHEMA`, so a fresh database already has every column and this does
         nothing; an older one gets the additions. Deliberately the only kind of migration
         offered here — see `_ADDED_COLUMNS`.
+
+        A "duplicate column" from the ALTER is tolerated, not raised: it means another
+        connection added the column between our PRAGMA and our ALTER — the review UI
+        opens a ChangeDB per request and its dashboard fires several requests at once,
+        so the first launch against an old database runs this migration concurrently.
+        Whoever loses that race finds exactly the schema it wanted.
         """
+        import sqlite3
+
         for table, additions in (("page_versions", _ADDED_COLUMNS),
-                                 ("findings", _ADDED_FINDING_COLUMNS)):
+                                 ("findings", _ADDED_FINDING_COLUMNS),
+                                 ("verdicts", _ADDED_VERDICT_COLUMNS)):
             cols = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
             for column, ddl in additions:
                 if cols and column not in cols:
-                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+                    try:
+                        self.conn.execute(
+                            f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+                    except sqlite3.OperationalError as err:
+                        if "duplicate column" not in str(err):
+                            raise
                     self.conn.commit()
 
     # -- context manager -------------------------------------------------

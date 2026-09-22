@@ -551,6 +551,38 @@ the Fable 5 retention sentence — rank 538 of 986 because `cannot` carries no s
 digest-mode URL hit is necessary but not sufficient, since both graded runs cited the page
 and still missed the restriction, so `locate` mode is the meaningful automated test.
 
+### The review tool (2026-09-20): the grade cycle gets a UI
+
+Built per [`review-tool-plan.md`](review-tool-plan.md) — a local web UI over the same
+ledger, for when the emit → edit → import dance is the wrong shape (it produced one
+silently empty worksheet during the arm campaign):
+
+    uv sync --all-extras          # `uv sync` REMOVES extras it is not told about, so
+                                  # `--extra review` alone uninstalls the digest SDK
+    uv run python scripts/review.py serve        # http://127.0.0.1:8765
+
+Everything is a review queue. A **grading** queue is a seeded draw (or an explicit
+targeted id list) whose items are re-derived from its parameters at open time, so
+resuming is a done-flag, not saved state; evidence per finding is `audit`'s ranked
+lines and mechanical flags plus a capped `render_diff`, with full page bodies a
+keystroke away (`f`). Submits build a `verdicts.Verdict` and go through
+`verdicts.store` — same table, same (finding, method) replacement, `selection`,
+stratum weight, and the new nullable `grader` column stamped on every row. The
+ledger's discipline is enforced by code instead of habit: full-page is the default
+method, and **prior verdicts are withheld until after submit, then revealed** — the
+2026-09-20 re-grade protocol as a structural property. Export writes a *filled*
+worksheet to `reports/changefeed/verdicts-*-q<id>.yaml` and re-parses it through
+`verdicts.parse` before returning, so the "worksheet is the rebuildable provenance"
+promise survives the UI; the CLI cycle above keeps working unchanged beside it.
+
+A **labeling** queue feeds the enrichment plan's dataset (§3.1 taxonomy, `skip` for
+unsure): items from `absence.scan` or a seeded lexicon-hit/no-hit stratified sample of
+a pair's added lines, pre-labeled by `classify.RESTRICTION` with the pre-labeler named,
+context from `classify.changed_sides`. Rows land in `line_labels` (verbatim text, per
+the fixture rule) with the per-session **flip rate** — pre-label vs approval — counted
+live and skips excluded from it and from the `reports/labels/` export. Accuracy on the
+dashboard is `verdicts.accuracy`, now grouped by grader too.
+
 ### The three A/B arms (2026-09-19): boost wins, injection anchors, quoting verifies
 
 The three gated input changes each got one arm on the stored #5 → #6 pair, graded through

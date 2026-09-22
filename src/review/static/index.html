@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- The review tool's one page. Three hash-routed views (dashboard, grading, labeling),
+     all rendered by app.js from the JSON API. No build step, no npm — this file is
+     served as-is by FastAPI's static mount. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>review</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="topbar">
+    <a href="#/" id="home">review</a>
+    <span id="crumb"></span>
+    <span id="progress"></span>
+  </header>
+  <main id="view"><p class="muted">loading…</p></main>
+  <footer id="keys" class="muted"></footer>
+  <script src="app.js"></script>
+</body>
+</html>

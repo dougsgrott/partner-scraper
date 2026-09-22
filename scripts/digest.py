@@ -343,6 +343,8 @@ def cmd_accuracy(args) -> int:
         rate = f"{r['rate']:.0%}" if r["rate"] is not None else "—"
         weighted = f"{r['weighted']:.0%}" if r["weighted"] is not None else "—"
         note = "  (targeted — not a rate)" if r["selection"] == "targeted" else ""
+        if r.get("grader"):
+            note += f"  [{r['grader']}]"
         print(f"  #{r['before']}->#{r['after']}  {('v' + (r['prompt_version'] or '?')):>6}  "
               f"{(r['selection'] or '?'):>9}  {r['method']:>9}  "
               f"{r['true']:>4} {r['partly']:>6} {r['false']:>5} {r['unverified']:>5}   "
